@@ -1,0 +1,29 @@
+# Bilingual Subs — Stremio/Nuvio add-on
+#
+# Matches the RedHair self-hosting guide layout: paste this into a Dockhand
+# stack, put the settings (API keys, PUBLIC_URL, ADDON_TOKEN...) in the stack's
+# environment panel, and point a Pangolin resource at bilingual-subs:7000.
+
+services:
+  bilingual-subs:
+    # Pre-built image (see README). For an image built on the VPS itself,
+    # use: image: bilingual-subs:latest
+    image: ghcr.io/halcyony/bilingual-subs:latest
+    container_name: bilingual-subs
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - 7000
+    volumes:
+      # cache/, results/ and logs/ — survives updates
+      - bilingual-subs-data:/data
+    networks:
+      - pangolin_frontend
+
+volumes:
+  bilingual-subs-data:
+
+networks:
+  pangolin_frontend:
+    external: true

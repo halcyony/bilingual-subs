@@ -1,0 +1,10 @@
+node_modules/
+.env
+out/
+dump/
+cache/
+results/
+logs/
+tools/
+data/
+*.log

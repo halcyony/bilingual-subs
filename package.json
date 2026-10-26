@@ -1,0 +1,25 @@
+{
+  "name": "stremio-bilingual-subs",
+  "version": "0.3.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test/selftest.js && node test/pipeline.mock.js",
+    "fetch": "node bin/fetch-subs.js",
+    "start": "node bin/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "7z-wasm": "^1.2.0",
+    "adm-zip": "^0.6.1",
+    "dotenv": "^18.0.9",
+    "express": "^4.22.3",
+    "iconv-lite": "^0.7.3",
+    "node-unrar-js": "^2.0.2",
+    "opencc-js": "^1.4.2",
+    "stremio-addon-sdk": "^1.6.10"
+  }
+}

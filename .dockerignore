@@ -1,0 +1,13 @@
+# Never bake secrets or local data into the image.
+.env
+node_modules
+cache
+results
+logs
+dump
+out
+data
+tools
+test
+*.log
+.git

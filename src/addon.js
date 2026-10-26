@@ -11,7 +11,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.4.0';
+const pkgVersion = '0.4.1';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -27,9 +27,15 @@ export const manifest = {
 const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url');
 
 // In the link, an episode id "tt0412142:1:6" is written "tt0412142_1_6".
+// The link ends in a readable file name because players label the track with
+// it: Nuvio's automatic subtitle picker re-runs after every seek and switches
+// to a built-in track unless it recognises the active one as your preferred
+// language ("Chinese" in the label; mpv also tags ".zh.srt" as Chinese).
+export const SUB_FILE_NAME = 'Chinese-English.zh.srt';
+
 function subtitleUrl(video, filename) {
   const base = requestContext.getStore()?.baseUrl || `http://127.0.0.1:${config.port}`;
-  return `${base}/sub/${videoKey(video).replace(/:/g, '_')}/${filename ? b64url(filename) : '_'}.srt`;
+  return `${base}/sub/${videoKey(video).replace(/:/g, '_')}/${filename ? b64url(filename) : '_'}/${SUB_FILE_NAME}`;
 }
 
 const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));

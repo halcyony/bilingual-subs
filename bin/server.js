@@ -60,7 +60,9 @@ const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
 
 // The finished SRT, or a placeholder if the search hasn't finished within a
 // few seconds. Reselecting later fetches this same link and gets the real file.
-routes.get('/sub/:videoId/:file.srt', async (req, res) => {
+// Current links end in /<file>/Chinese-English.zh.srt; the older /<file>.srt
+// form is still served, since Nuvio remembers subtitle links per title.
+const serveSub = async (req, res) => {
   // Movies: tt0111161. Episodes: tt0412142_1_6 (":" written as "_" in links).
   const video = parseVideoId(req.params.videoId.replace(/_/g, ':'));
   if (!video) return res.status(400).end();
@@ -74,7 +76,9 @@ routes.get('/sub/:videoId/:file.srt', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   if (!result) log(`  placeholder for ${imdbId}: search still running`);
   res.send(result ? NOT_FOUND : PREPARING);
-});
+};
+routes.get('/sub/:videoId/:file/:name.srt', serveSub);
+routes.get('/sub/:videoId/:file.srt', serveSub);
 
 routes.get('/', (req, res) => res.redirect(`${prefix}/manifest.json`));
 routes.use(getRouter(buildAddon(log)));

@@ -1,6 +1,6 @@
 {
   "name": "stremio-bilingual-subs",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "main": "index.js",
   "scripts": {
     "test": "node test/selftest.js && node test/pipeline.mock.js",

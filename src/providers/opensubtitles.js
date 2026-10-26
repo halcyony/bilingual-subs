@@ -26,7 +26,21 @@ async function ensureLogin(log) {
   }
 }
 
-export async function search({ imdbId, season, episode }, log) {
+// Some shows (often anime) are filed with later seasons numbered by running
+// total: season 2 episode 2 of a show with a 24-episode season 1 is "S2E26".
+// For season 2+, the running-total number is searched too.
+async function runningTotalEpisode(meta, season, episode) {
+  if (season == null || season < 2 || !meta) return null;
+  const counts = (await meta).seasonEpisodeCounts || {};
+  let before = 0;
+  for (let s = 1; s < season; s++) {
+    if (!counts[s]) return null; // incomplete season list: can't compute it
+    before += counts[s];
+  }
+  return before ? before + episode : null;
+}
+
+export async function search({ imdbId, season, episode, meta }, log) {
   if (!config.opensubtitles.apiKey) {
     log(`[${NAME}] skipped: OPENSUBTITLES_API_KEY not set`);
     return [];
@@ -36,21 +50,30 @@ export async function search({ imdbId, season, episode }, log) {
   // OpenSubtitles asks for alphabetically sorted params and lowercase values.
   // Two queries so English results can't crowd Chinese ones out of page 1.
   const episodeQuery = season != null && episode != null;
-  const queries = ['en', 'ze,zh-cn,zh-tw'].map((languages) => {
-    // Episodes are looked up by the show's id (parent_imdb_id) + numbers.
-    const params = episodeQuery
-      ? { episode_number: String(episode), languages, order_by: 'download_count', parent_imdb_id: numericId, season_number: String(season), type: 'episode' }
-      : { imdb_id: numericId, languages, order_by: 'download_count', type: 'movie' };
-    const qs = new URLSearchParams(params);
-    return getJson(`${config.opensubtitles.baseUrl}/subtitles?${qs}`, { headers: headers() });
-  });
+  const episodeNumbers = [episode];
+  if (episodeQuery) {
+    const total = await runningTotalEpisode(meta, season, episode);
+    if (total && total !== episode) episodeNumbers.push(total);
+  }
+  const queries = (episodeQuery ? episodeNumbers : [null]).flatMap((ep) =>
+    ['en', 'ze,zh-cn,zh-tw'].map((languages) => {
+      // Episodes are looked up by the show's id (parent_imdb_id) + numbers.
+      const params = episodeQuery
+        ? { episode_number: String(ep), languages, order_by: 'download_count', parent_imdb_id: numericId, season_number: String(season), type: 'episode' }
+        : { imdb_id: numericId, languages, order_by: 'download_count', type: 'movie' };
+      const qs = new URLSearchParams(params);
+      return getJson(`${config.opensubtitles.baseUrl}/subtitles?${qs}`, { headers: headers() });
+    }),
+  );
   const results = await Promise.all(queries);
   const out = [];
+  const seen = new Set();
   for (const res of results) {
     for (const item of res.data || []) {
       const a = item.attributes;
       const file = a.files?.[0];
-      if (!file) continue;
+      if (!file || seen.has(a.subtitle_id)) continue;
+      seen.add(a.subtitle_id);
       out.push({
         provider: NAME,
         id: `${NAME}:${a.subtitle_id}`,

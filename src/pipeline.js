@@ -24,10 +24,16 @@ async function movieMeta(imdbId, log, type = 'movie') {
     const res = await getJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`);
     const year = Number.parseInt(String(res.meta?.releaseInfo || res.meta?.year || ''), 10) || null;
     const countries = String(res.meta?.country || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return { title: res.meta?.name || null, year, countries };
+    // Episodes per season (specials, season 0, left out), for sites that
+    // number later seasons by running total (e.g. S2E26 for season 2 episode 2).
+    const seasonEpisodeCounts = {};
+    for (const v of res.meta?.videos || []) {
+      if (v.season > 0) seasonEpisodeCounts[v.season] = (seasonEpisodeCounts[v.season] || 0) + 1;
+    }
+    return { title: res.meta?.name || null, year, countries, seasonEpisodeCounts };
   } catch (e) {
     log(`[meta] Cinemeta lookup failed: ${e.message}`);
-    return { title: null, year: null, countries: [] };
+    return { title: null, year: null, countries: [], seasonEpisodeCounts: {} };
   }
 }
 

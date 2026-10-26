@@ -12,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.6.0';
+const pkgVersion = '0.6.1';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',

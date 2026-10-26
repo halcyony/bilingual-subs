@@ -7,13 +7,19 @@ function toMs(h, m, s, frac) {
   return ((+h * 60 + +m) * 60 + +s) * 1000 + Math.round(+frac.padEnd(3, '0').slice(0, 3));
 }
 
+// ASS vector drawings ("m 20 0 l 209 0 b 218 0 ...") are shapes, not dialogue.
+// SRTs converted from fancy ASS files often keep them as plain text lines.
+const DRAWING = /^m\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s+([mnlbspc]|-?\d+(\.\d+)?))*\s*$/i;
+// Lines that are only box/shape glyphs (■ □ ▲ ●…), leftovers of such drawings.
+const SHAPES_ONLY = /^[\s■-◿▀-▟]+$/;
+
 function stripTags(text) {
   return text
     .replace(/<[^>]+>/g, '')
     .replace(/\{\\[^}]*\}/g, '')
     .split('\n')
     .map((l) => l.trim())
-    .filter(Boolean)
+    .filter((l) => l && !DRAWING.test(l) && !SHAPES_ONLY.test(l))
     .join('\n');
 }
 

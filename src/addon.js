@@ -10,7 +10,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.3.0';
+const pkgVersion = '0.3.1';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -43,18 +43,21 @@ export function buildAddon(log = console.log) {
     const s = await status(jobKey(imdbId, filename));
     if (s.state === 'failed') return { subtitles: [], cacheMaxAge: 3600 };
 
-    // Give a fresh search a head start; if it's slower than that, answer with
-    // the URL anyway — fetching it waits for the job to finish.
-    if (s.state !== 'ready') {
+    // Give a fresh search a short head start, then answer with the entry
+    // anyway: Nuvio drops late answers. Until the search finishes, the file
+    // link serves a "being prepared" placeholder (see bin/server.js).
+    let ready = s.state === 'ready';
+    if (!ready) {
       const job = ensure(imdbId, filename, log);
       const done = await Promise.race([job, timeout(config.answerWaitMs)]);
       if (done && !done.ok) return { subtitles: [], cacheMaxAge: 3600 };
+      ready = Boolean(done?.ok);
     }
     const entry = { id: `bilingual-${imdbId}`, url: subtitleUrl(imdbId, filename), lang: config.subtitleLang };
-    log(`  answered ${imdbId}: lang="${entry.lang}" url=${entry.url}`);
+    log(`  answered ${imdbId}${ready ? '' : ' (search still running)'}: lang="${entry.lang}" url=${entry.url}`);
     return {
       subtitles: [entry],
-      cacheMaxAge: s.state === 'ready' ? 7 * 24 * 3600 : 600,
+      cacheMaxAge: ready ? 7 * 24 * 3600 : 60,
     };
   });
   return builder.getInterface();

@@ -78,6 +78,19 @@ await test('bilingual ASS with separate per-language Dialogue lines', () => {
   assert.equal(classify(cues).lang, 'bilingual');
 });
 
+await test('vector drawing lines left in converted SRTs are dropped', () => {
+  const srt = [
+    '1', '00:00:01,000 --> 00:00:27,000', 'm 20 0 l 209 0 b 218 0 229 11 229 20 l 229 209 b 229 218 218 228 209 228', '',
+    '2', '00:00:01,000 --> 00:00:27,000', 'm 71 60 b 71 0 161 0 161 60 b 161 120 71 120 71 60', '■', '',
+    '3', '00:00:30,000 --> 00:00:32,000', '你好，我们走吧。', 'Hello, let us go.', '',
+    '4', '00:00:33,000 --> 00:00:35,000', 'Room 101 is on the left', '',
+  ].join('\n');
+  const cues = parse(srt, 'x.srt');
+  assert.equal(cues.length, 2, JSON.stringify(cues));
+  assert.equal(cues[0].text, '你好，我们走吧。\nHello, let us go.');
+  assert.equal(cues[1].text, 'Room 101 is on the left');
+});
+
 await test('mislabeled Arabic decoded as GBK is not treated as Chinese', () => {
   const ar = ['لو لم أكن أهتم', 'أكثر مما يمكن للكلمات أن تقول', 'هل كنت سأشعر بهذه الطريقة؟', 'إذا لم يكن هذا حباً', 'لا أعتقد أن مدير المتجر يحبني كثيراً'];
   const { text } = decode(iconv.encode(toSrt(make(ar)), 'win1256'));

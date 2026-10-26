@@ -52,6 +52,12 @@ export const config = {
   // a non-ISO value (e.g. "中英双语") is shown as-is.
   subtitleLang: process.env.SUBTITLE_LANG || 'chi',
   // How long the add-on waits for a fresh search before answering Stremio.
-  answerWaitMs: int(process.env.ANSWER_WAIT_MS, 20000),
+  // Kept short: Nuvio drops answers that arrive late, so the entry is listed
+  // right away and the file link serves a placeholder until the search is done.
+  answerWaitMs: int(process.env.ANSWER_WAIT_MS, 3000),
+  // How long the subtitle file link waits for a running search before
+  // returning the "being prepared" placeholder. Players can freeze while
+  // waiting, so keep this short.
+  subWaitMs: int(process.env.SUB_WAIT_MS, 3000),
   httpTimeoutMs: int(process.env.HTTP_TIMEOUT_MS, 20000),
 };

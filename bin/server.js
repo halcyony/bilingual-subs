@@ -48,15 +48,28 @@ routes.use((req, res, next) => {
   requestContext.run({ baseUrl: `${origin}${prefix}` }, next);
 });
 
-// The finished SRT. If the search is still running, this waits for it.
+// A one-cue SRT covering the whole film, shown instead of the real file when
+// it isn't available yet. Players (Nuvio's PC app especially) freeze while a
+// subtitle link is slow, so this link never waits long.
+const placeholder = (zh, en) => `1\n00:00:00,000 --> 99:59:59,000\n${zh}\n${en}\n`;
+const PREPARING = placeholder('中英字幕准备中…请稍后重新选择', 'Bilingual subtitles are being prepared. Select them again in a few seconds.');
+const NOT_FOUND = placeholder('未找到中文字幕', 'No Chinese subtitles were found for this title.');
+
+const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
+
+// The finished SRT, or a placeholder if the search hasn't finished within a
+// few seconds. Reselecting later fetches this same link and gets the real file.
 routes.get('/sub/:imdbId/:file.srt', async (req, res) => {
   const { imdbId, file } = req.params;
   if (!/^tt\d+$/.test(imdbId)) return res.status(400).end();
   const filename = file === '_' ? null : Buffer.from(file, 'base64url').toString('utf8');
-  const result = await ensure(imdbId, filename, log);
+  const result = await Promise.race([ensure(imdbId, filename, log), timeout(config.subWaitMs)]);
   res.set('Access-Control-Allow-Origin', '*');
-  if (!result.ok) return res.status(404).type('text/plain').send(result.error);
-  res.type('application/x-subrip; charset=utf-8').send(await readFile(result.file));
+  res.type('application/x-subrip; charset=utf-8');
+  if (result?.ok) return res.send(await readFile(result.file));
+  res.set('Cache-Control', 'no-store');
+  if (!result) log(`  placeholder for ${imdbId}: search still running`);
+  res.send(result ? NOT_FOUND : PREPARING);
 });
 
 routes.get('/', (req, res) => res.redirect(`${prefix}/manifest.json`));

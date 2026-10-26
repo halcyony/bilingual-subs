@@ -126,8 +126,10 @@ This setup follows the RedHair self-hosting guide, where apps join the
    `/<ADDON_TOKEN>/*`. Everything else keeps Pangolin's login.
 6. **Install in Nuvio/Stremio:**
    `https://subs.<your domain>/<ADDON_TOKEN>/manifest.json`
-7. **Updates:** push to GitHub, wait for the Actions build, then use Dockhand →
-   **Check for updates** and redeploy.
+7. **Updates:** push to GitHub and wait for the Actions build. Then, in
+   Dockhand → Stacks, use the stack's **Redeploy** button with **Pull images**
+   ticked. Dockhand's "Check for updates" didn't notice a new `latest`. The log's
+   first line shows the running version.
 
 ## CLI usage
 

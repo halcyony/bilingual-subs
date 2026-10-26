@@ -12,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.6.1';
+const pkgVersion = '0.6.2';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -81,8 +81,11 @@ export function buildAddon(log = console.log) {
     }
     const entries = [{ id: `bilingual-${videoKey(video)}`, url: subtitleUrl(video, filename), lang: config.subtitleLang }];
     // Second entry: the same subtitle in the other timing group's timing. Nuvio
-    // labels both the same, so it's simply the second one listed.
-    if (hasAlt) entries.push({ id: `bilingual-alt-${videoKey(video)}`, url: subtitleUrl(video, filename, ALT_FILE_NAME), lang: config.subtitleLang });
+    // labels both the same, so it's simply the second one listed. Nuvio only
+    // asks once per playback, so while the search is still running the entry
+    // is listed anyway; if no second timing turns up, its link serves the main
+    // file (see bin/server.js).
+    if (hasAlt || !ready) entries.push({ id: `bilingual-alt-${videoKey(video)}`, url: subtitleUrl(video, filename, ALT_FILE_NAME), lang: config.subtitleLang });
     log(`  answered ${videoLabel(video)}${ready ? '' : ' (search still running)'}${hasAlt ? ' + alternative timing' : ''}: lang="${config.subtitleLang}" url=${entries[0].url}`);
     return {
       subtitles: entries,

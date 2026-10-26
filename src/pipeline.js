@@ -312,6 +312,9 @@ export async function run({ imdbId, season = null, episode = null, release = nul
   const best = chinese[0];
   let out;
   let mode;
+  // Where the output sits relative to the English reference's timing: 0 unless
+  // a bilingual file is kept in its own (shifted) timing below.
+  let outOffsetMs = 0;
   if (best.lang === 'bilingual') {
     mode = 'bilingual';
     let cues = best.cues;
@@ -323,6 +326,7 @@ export async function run({ imdbId, season = null, episode = null, release = nul
       log(`\n  re-timed bilingual file to the English reference (${t.kind})`);
     } else if (t && t.kind !== 'in-sync') {
       log(`\n  bilingual file timing left as is (${t.kind}${t.fixed ? '' : ', not correctable'}; English reference is not a better release match)`);
+      outOffsetMs = -best.alignment.medianShiftMs;
     }
     out = normaliseBilingual(cues);
   } else if (refCues) {
@@ -333,5 +337,37 @@ export async function run({ imdbId, season = null, episode = null, release = nul
     out = best.cues;
   }
   log(`\n== Result: ${mode} from ${best.id}${mode === 'merged' && reference ? ` + ${reference.id}` : ''} (${out.length} cues)${best.ai ? ' — contains AI/MT translation' : ''}`);
-  return { srt: toSrt(out), mode, chosen: best, reference, candidates };
+
+  const alt = alternateTiming(chinese, outOffsetMs);
+  if (alt) log(`== Alternative timing: ${(alt.shiftMs / 1000).toFixed(2)}s (${alt.support} other subtitle file${alt.support > 1 ? 's' : ''} use it)`);
+  return {
+    srt: toSrt(out),
+    altSrt: alt ? toSrt(out.map((c) => ({ ...c, start: c.start + alt.shiftMs, end: c.end + alt.shiftMs }))) : null,
+    altShiftMs: alt?.shiftMs ?? null,
+    mode,
+    chosen: best,
+    reference,
+    candidates,
+  };
+}
+
+// Subtitle files for the same title often come in two timing groups (web vs
+// Blu-ray releases are commonly ~1 s apart), and the add-on can't tell which
+// one the viewer's video matches. When other files agree on a constant shift
+// from the output, offer the output shifted to their timing as a second entry.
+const ALT_MIN_MS = 400;
+const ALT_MAX_MS = 15000;
+function alternateTiming(candidates, outOffsetMs) {
+  const votes = new Map();
+  for (const c of candidates) {
+    const a = c.alignment;
+    if (!a || a.timing.kind !== 'offset' || Math.abs(a.timing.fpsRatio - 1) > 0.001) continue;
+    const nativeMs = Math.round(-a.medianShiftMs / 100) * 100; // this file's own timing vs the reference
+    const shift = nativeMs - outOffsetMs;
+    if (Math.abs(shift) < ALT_MIN_MS || Math.abs(shift) > ALT_MAX_MS) continue;
+    votes.set(shift, (votes.get(shift) || 0) + 1);
+  }
+  let best = null;
+  for (const [shiftMs, support] of votes) if (!best || support > best.support) best = { shiftMs, support };
+  return best;
 }

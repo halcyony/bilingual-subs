@@ -86,6 +86,14 @@ whole-season pack or an episode range. Those are downloaded once (and cached
 for the other episodes), and only the files named for this episode
 (`S01E06`, `1x06`, `第六集`, `EP06`…) are used.
 
+Subtitle files for one title often come in two timing groups. Streaming and
+Blu-ray releases are commonly about 1 s apart, and the add-on can't tell which
+one your video matches, because Nuvio doesn't send the file name. When the other
+Chinese files agree on a constant shift from the chosen output (0.4–15 s), the
+add-on lists a second entry: the same subtitle shifted to that timing. Nuvio
+labels both the same, so it's simply the second one listed. If the first is
+early or late, try the second.
+
 Anime catalogs identify titles by Kitsu or MyAnimeList ids, e.g.
 `kitsu:48649:1`. These are translated to the IMDb show, season and episode
 with the community list [Fribb/anime-lists](https://github.com/Fribb/anime-lists).

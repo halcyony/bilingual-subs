@@ -12,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.5.0';
+const pkgVersion = '0.6.0';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -35,10 +35,11 @@ const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url');
 // to a built-in track unless it recognises the active one as your preferred
 // language ("Chinese" in the label; mpv also tags ".zh.srt" as Chinese).
 export const SUB_FILE_NAME = 'Chinese-English.zh.srt';
+export const ALT_FILE_NAME = 'Chinese-English.alt.zh.srt';
 
-function subtitleUrl(video, filename) {
+function subtitleUrl(video, filename, name = SUB_FILE_NAME) {
   const base = requestContext.getStore()?.baseUrl || `http://127.0.0.1:${config.port}`;
-  return `${base}/sub/${videoKey(video).replace(/:/g, '_')}/${filename ? b64url(filename) : '_'}/${SUB_FILE_NAME}`;
+  return `${base}/sub/${videoKey(video).replace(/:/g, '_')}/${filename ? b64url(filename) : '_'}/${name}`;
 }
 
 const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
@@ -70,16 +71,23 @@ export function buildAddon(log = console.log) {
     // anyway: Nuvio drops late answers. Until the search finishes, the file
     // link serves a "being prepared" placeholder (see bin/server.js).
     let ready = s.state === 'ready';
+    let hasAlt = Boolean(s.altFile);
     if (!ready) {
       const job = ensure(video, filename, log);
       const done = await Promise.race([job, timeout(config.answerWaitMs)]);
       if (done && !done.ok) return { subtitles: [], cacheMaxAge: 3600 };
       ready = Boolean(done?.ok);
+      hasAlt = Boolean(done?.altFile);
     }
-    const entry = { id: `bilingual-${videoKey(video)}`, url: subtitleUrl(video, filename), lang: config.subtitleLang };
-    log(`  answered ${videoLabel(video)}${ready ? '' : ' (search still running)'}: lang="${entry.lang}" url=${entry.url}`);
+    const entries = [{ id: `bilingual-${videoKey(video)}`, url: subtitleUrl(video, filename), lang: config.subtitleLang }];
+    // Second entry: the same subtitle in the other timing group's timing. Nuvio
+    // labels both the same, so it's simply the second one listed.
+    if (hasAlt) entries.push({ id: `bilingual-alt-${videoKey(video)}`, url: subtitleUrl(video, filename, ALT_FILE_NAME), lang: config.subtitleLang });
+    log(`  answered ${videoLabel(video)}${ready ? '' : ' (search still running)'}${hasAlt ? ' + alternative timing' : ''}: lang="${config.subtitleLang}" url=${entries[0].url}`);
     return {
-      subtitles: [entry],
+      subtitles: entries,
+      // A finished search is final; while it runs, ask again soon so the
+      // alternative-timing entry can appear once it's known.
       cacheMaxAge: ready ? 7 * 24 * 3600 : 60,
     };
   });

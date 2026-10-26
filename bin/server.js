@@ -72,7 +72,10 @@ const serveSub = async (req, res) => {
   const result = await Promise.race([ensure(video, filename, log), timeout(config.subWaitMs)]);
   res.set('Access-Control-Allow-Origin', '*');
   res.type('application/x-subrip; charset=utf-8');
-  if (result?.ok) return res.send(await readFile(result.file));
+  // ".../Chinese-English.alt.zh.srt" is the alternative-timing copy; fall back
+  // to the main file if there isn't one.
+  const wantsAlt = String(req.params.name || '').includes('.alt');
+  if (result?.ok) return res.send(await readFile(wantsAlt && result.altFile ? result.altFile : result.file));
   res.set('Cache-Control', 'no-store');
   if (!result) log(`  placeholder for ${imdbId}: search still running`);
   res.send(result ? NOT_FOUND : PREPARING);

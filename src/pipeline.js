@@ -12,15 +12,16 @@ import { releaseMatch } from './release.js';
 import { align, findAlass } from './align.js';
 import { scoreCandidate } from './score.js';
 import { mergeBilingual, normaliseBilingual } from './merge.js';
+import { isEpisode, nameMatchesEpisode, videoLabel } from './episode.js';
 
 const PROVIDERS = { opensubtitles, subdl, assrt };
 const MIN_CUES = 20;
 const ALIGN_TOP = 4;
 const CHINESE_COUNTRIES = /^(china|hong kong|taiwan|macao|macau)$/i;
 
-async function movieMeta(imdbId, log) {
+async function movieMeta(imdbId, log, type = 'movie') {
   try {
-    const res = await getJson(`https://v3-cinemeta.strem.io/meta/movie/${imdbId}.json`);
+    const res = await getJson(`https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`);
     const year = Number.parseInt(String(res.meta?.releaseInfo || res.meta?.year || ''), 10) || null;
     const countries = String(res.meta?.country || '').split(',').map((s) => s.trim()).filter(Boolean);
     return { title: res.meta?.name || null, year, countries };
@@ -118,7 +119,16 @@ function selectForDownload(results) {
   return picked;
 }
 
-async function downloadAndAnalyse(r, release, log) {
+// Season packs contain every episode; keep the files named for this one. A
+// file whose name says nothing about episodes is kept only if it's alone.
+function pickEpisodeFiles(files, video) {
+  if (!isEpisode(video)) return files;
+  const verdicts = files.map((f) => nameMatchesEpisode(f.name, video.season, video.episode));
+  if (verdicts.some((v) => v === true)) return files.filter((_, i) => verdicts[i] === true);
+  return files.length === 1 && verdicts[0] === null ? files : [];
+}
+
+async function downloadAndAnalyse(r, release, log, video) {
   let files;
   try {
     const res = await cached(r.id, r.download);
@@ -128,6 +138,9 @@ async function downloadAndAnalyse(r, release, log) {
     log(`  download failed ${r.id}: ${e.message}`);
     return [];
   }
+  const all = files.length;
+  files = pickEpisodeFiles(files, video);
+  if (files.length !== all) log(`  ${r.id}: ${files.length} of ${all} files are this episode`);
   const out = [];
   for (const f of files) {
     const { text, encoding } = decode(f.data);
@@ -140,7 +153,7 @@ async function downloadAndAnalyse(r, release, log) {
     const script = cls.lang === 'zh' || cls.lang === 'bilingual' ? scriptOf(cues.map((c) => c.text).join('\n')) : { script: null, t2sRatio: 0 };
     out.push({
       ...r,
-      id: files.length > 1 ? `${r.id}#${f.name}` : r.id,
+      id: all > 1 ? `${r.id}#${f.name}` : r.id,
       fileName: f.name,
       encoding,
       cues,
@@ -183,14 +196,15 @@ function describeTiming(a) {
  * Run the whole pipeline. Returns { srt, chosen, mode, candidates } or throws.
  * `log` receives human-readable progress lines.
  */
-export async function run({ imdbId, release = null, log = console.log, dump = null }) {
+export async function run({ imdbId, season = null, episode = null, release = null, log = console.log, dump = null }) {
   if (!/^tt\d+$/.test(imdbId)) throw new Error(`not an IMDb id: ${imdbId}`);
+  const video = { imdbId, season, episode };
   // Only assrt needs the title, so the IMDb-based searches start right away.
-  const metaP = movieMeta(imdbId, log);
-  const searchP = searchAll({ imdbId, meta: metaP }, log);
+  const metaP = movieMeta(imdbId, log, isEpisode(video) ? 'series' : 'movie');
+  const searchP = searchAll({ imdbId, season, episode, meta: metaP }, log);
   const meta = await metaP;
   const orig = originalSide(meta);
-  log(`Movie: ${meta.title || '?'} (${meta.year || '?'})  ${imdbId}  [${meta.countries.join(', ') || 'country ?'}]`);
+  log(`${isEpisode(video) ? 'Episode' : 'Movie'}: ${meta.title || '?'} (${meta.year || '?'})  ${videoLabel(video)}  [${meta.countries.join(', ') || 'country ?'}]`);
   log(`Original language side: ${orig === 'zh' ? 'Chinese' : 'English/other'} — AI/MT allowed only for ${orig === 'zh' ? 'English' : 'Chinese'} (as a last resort)`);
   if (release) log(`Release: ${release}`);
   log(`Aligner: ${findAlass() ? `alass (${findAlass()})` : 'built-in offset search (alass not found)'}`);
@@ -203,14 +217,14 @@ export async function run({ imdbId, release = null, log = console.log, dump = nu
   log('\n== Download');
   const human = selectForDownload(results.filter((r) => !r.ai));
   log(`  downloading ${human.length} human-made of ${results.length}`);
-  let analysed = (await Promise.all(human.map((s) => downloadAndAnalyse(s, release, log)))).flat();
+  let analysed = (await Promise.all(human.map((s) => downloadAndAnalyse(s, release, log, video)))).flat();
   const hasHuman = (side) => analysed.some((c) => !c.contentMarker && (side === 'zh' ? c.lang === 'zh' || c.lang === 'bilingual' : c.lang === 'en'));
   const needSides = ['zh', 'en'].filter((side) => !hasHuman(side) && aiAllowed(side, orig));
   const aiPool = results.filter((r) => r.ai && (needSides.includes(r.side) || (r.side === 'bilingual' && needSides.includes('zh'))));
   if (aiPool.length) {
     const aiPicked = selectForDownload(aiPool);
     log(`  no human ${needSides.join('/')} subtitle — falling back to ${aiPicked.length} AI/MT one(s)`);
-    analysed = analysed.concat((await Promise.all(aiPicked.map((s) => downloadAndAnalyse(s, release, log)))).flat());
+    analysed = analysed.concat((await Promise.all(aiPicked.map((s) => downloadAndAnalyse(s, release, log, video)))).flat());
   }
 
   log('\n== Analyse (content-based)');

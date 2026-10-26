@@ -26,7 +26,7 @@ async function ensureLogin(log) {
   }
 }
 
-export async function search({ imdbId }, log) {
+export async function search({ imdbId, season, episode }, log) {
   if (!config.opensubtitles.apiKey) {
     log(`[${NAME}] skipped: OPENSUBTITLES_API_KEY not set`);
     return [];
@@ -35,8 +35,13 @@ export async function search({ imdbId }, log) {
   const numericId = String(Number.parseInt(imdbId.replace(/^tt/, ''), 10));
   // OpenSubtitles asks for alphabetically sorted params and lowercase values.
   // Two queries so English results can't crowd Chinese ones out of page 1.
+  const episodeQuery = season != null && episode != null;
   const queries = ['en', 'ze,zh-cn,zh-tw'].map((languages) => {
-    const qs = new URLSearchParams({ imdb_id: numericId, languages, order_by: 'download_count', type: 'movie' });
+    // Episodes are looked up by the show's id (parent_imdb_id) + numbers.
+    const params = episodeQuery
+      ? { episode_number: String(episode), languages, order_by: 'download_count', parent_imdb_id: numericId, season_number: String(season), type: 'episode' }
+      : { imdb_id: numericId, languages, order_by: 'download_count', type: 'movie' };
+    const qs = new URLSearchParams(params);
     return getJson(`${config.opensubtitles.baseUrl}/subtitles?${qs}`, { headers: headers() });
   });
   const results = await Promise.all(queries);

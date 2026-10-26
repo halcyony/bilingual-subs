@@ -12,6 +12,7 @@ import { align } from '../src/align.js';
 import { mergeBilingual } from '../src/merge.js';
 import { extractArchive } from '../src/archive.js';
 import { scoreCandidate } from '../src/score.js';
+import { parseVideoId, nameMatchesEpisode } from '../src/episode.js';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -76,6 +77,18 @@ await test('bilingual ASS with separate per-language Dialogue lines', () => {
   assert.equal(cues.length, 60);
   assert.equal(cues[0].start, 5000);
   assert.equal(classify(cues).lang, 'bilingual');
+});
+
+await test('episode ids and file-name episode matching', () => {
+  assert.deepEqual(parseVideoId('tt0412142:1:6'), { imdbId: 'tt0412142', season: 1, episode: 6 });
+  assert.deepEqual(parseVideoId('tt0111161'), { imdbId: 'tt0111161', season: null, episode: null });
+  assert.equal(parseVideoId('nope'), null);
+  const cases = [
+    ['House.S01E06.720p.chs.srt', true], ['House.S01E07.chs.srt', false], ['house.1x06.srt', true],
+    ['House.S01E01-22.DVDRip.eng', true], ['House.S02E06.srt', false], ['豪斯医生.第一季.第六集.ass', true],
+    ['第06集.srt', true], ['House.EP06.srt', true], ['House Season 1 Complete', null], ['House.S01.E06.srt', true],
+  ];
+  for (const [name, want] of cases) assert.equal(nameMatchesEpisode(name, 1, 6), want, name);
 });
 
 await test('vector drawing lines left in converted SRTs are dropped', () => {

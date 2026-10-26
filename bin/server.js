@@ -8,6 +8,7 @@ import sdk from 'stremio-addon-sdk';
 import { config } from '../src/config.js';
 import { buildAddon, requestContext, manifest } from '../src/addon.js';
 import { ensure } from '../src/jobs.js';
+import { parseVideoId, videoLabel } from '../src/episode.js';
 import { findAlass } from '../src/align.js';
 
 const { getRouter } = sdk;
@@ -59,11 +60,14 @@ const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
 
 // The finished SRT, or a placeholder if the search hasn't finished within a
 // few seconds. Reselecting later fetches this same link and gets the real file.
-routes.get('/sub/:imdbId/:file.srt', async (req, res) => {
-  const { imdbId, file } = req.params;
-  if (!/^tt\d+$/.test(imdbId)) return res.status(400).end();
+routes.get('/sub/:videoId/:file.srt', async (req, res) => {
+  // Movies: tt0111161. Episodes: tt0412142_1_6 (":" written as "_" in links).
+  const video = parseVideoId(req.params.videoId.replace(/_/g, ':'));
+  if (!video) return res.status(400).end();
+  const { file } = req.params;
+  const imdbId = videoLabel(video);
   const filename = file === '_' ? null : Buffer.from(file, 'base64url').toString('utf8');
-  const result = await Promise.race([ensure(imdbId, filename, log), timeout(config.subWaitMs)]);
+  const result = await Promise.race([ensure(video, filename, log), timeout(config.subWaitMs)]);
   res.set('Access-Control-Allow-Origin', '*');
   res.type('application/x-subrip; charset=utf-8');
   if (result?.ok) return res.send(await readFile(result.file));

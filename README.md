@@ -79,7 +79,12 @@ How it behaves:
 Settings in `.env`: `PORT` (7000), `HOST` (`0.0.0.0`, or `127.0.0.1` for
 this PC only), `SUBTITLE_LANG`, `ANSWER_WAIT_MS`.
 
-Movies only for now; series come next.
+Movies and TV series are both supported. For an episode, OpenSubtitles and
+SubDL are searched by the show's IMDb id plus the season and episode numbers,
+and assrt is searched by "<title> SxxEyy". SubDL often only has Chinese as a
+whole-season pack or an episode range. Those are downloaded once (and cached
+for the other episodes), and only the files named for this episode
+(`S01E06`, `1x06`, `第六集`, `EP06`…) are used.
 
 ## Running on a server (Docker)
 
@@ -137,6 +142,7 @@ This setup follows the RedHair self-hosting guide, where apps join the
 node bin/fetch-subs.js tt0111161
 node bin/fetch-subs.js tt0111161 "The.Shawshank.Redemption.1994.1080p.BluRay.x264-SPARKS.mkv"
 node bin/fetch-subs.js tt0111161 -o shawshank.srt --dump dump/
+node bin/fetch-subs.js tt0412142:1:6          # House, season 1 episode 6
 ```
 
 * `-o, --out` sets the output file (default `out/<imdbId>.zh-en.srt`)
@@ -245,7 +251,6 @@ tools/alass/             local alass-cli.exe (not in git; see "alass")
 
 ## Known limits (milestone 1)
 
-* Movies only; series/episodes come later.
 * The original language is guessed from country, so a Hong Kong film shot in
   English would be treated as Chinese.
 * assrt's API server (`api.assrt.net`) timed out during testing on

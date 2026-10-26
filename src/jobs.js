@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { config } from './config.js';
 import { run } from './pipeline.js';
+import { videoKey, videoLabel } from './episode.js';
 
 // Finished subtitles are stored on disk per (IMDb id, release filename), so a
 // movie is only searched once. Failures are remembered for a while so a movie
@@ -14,8 +15,10 @@ const inFlight = new Map(); // key -> Promise<{ok, file?, error?}>
 let running = 0;
 const waiting = [];
 
-export const jobKey = (imdbId, filename) =>
-  createHash('sha1').update(`${imdbId}|${filename || ''}`).digest('hex').slice(0, 20);
+// `video` is { imdbId, season, episode }. A movie's key is unchanged from
+// before series support (videoKey is just the IMDb id), so saved results stay valid.
+export const jobKey = (video, filename) =>
+  createHash('sha1').update(`${videoKey(video)}|${filename || ''}`).digest('hex').slice(0, 20);
 
 const srtPath = (key) => path.join(config.resultsDir, `${key}.srt`);
 const failPath = (key) => path.join(config.resultsDir, `${key}.fail.json`);
@@ -47,18 +50,18 @@ export async function status(key) {
   return { state: 'none' };
 }
 
-// Start (or join) the pipeline for this movie/release. Resolves when done.
-export function ensure(imdbId, filename, log = console.log) {
-  const key = jobKey(imdbId, filename);
+// Start (or join) the pipeline for this movie/episode + release. Resolves when done.
+export function ensure(video, filename, log = console.log) {
+  const key = jobKey(video, filename);
   if (inFlight.has(key)) return inFlight.get(key);
   const job = (async () => {
     const s = await status(key);
     if (s.state === 'ready') return { ok: true, file: s.file };
     if (s.state === 'failed') return { ok: false, error: s.error };
     await slot();
-    const prefix = `[${imdbId}${filename ? ` ${filename.slice(0, 40)}` : ''}]`;
+    const prefix = `[${videoLabel(video)}${filename ? ` ${filename.slice(0, 40)}` : ''}]`;
     try {
-      const result = await run({ imdbId, release: filename || null, log: (l) => log(l.split('\n').map((x) => `${prefix} ${x}`).join('\n')) });
+      const result = await run({ ...video, release: filename || null, log: (l) => log(l.split('\n').map((x) => `${prefix} ${x}`).join('\n')) });
       await mkdir(config.resultsDir, { recursive: true });
       await writeFile(srtPath(key), result.srt, 'utf8');
       return { ok: true, file: srtPath(key), mode: result.mode };

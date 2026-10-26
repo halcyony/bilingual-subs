@@ -27,6 +27,13 @@ const make = (lines, n = 300, offset = 0) => {
 const files = {
   en: Buffer.from(toSrt(make(en))),
   zhMT: Buffer.from(toSrt(make(zhS))),
+  seasonZip: (() => {
+    const z = new AdmZip();
+    z.addFile('House.S01E05.chs.srt', Buffer.from(toSrt(make(zhT))));
+    z.addFile('House.S01E06.chs.srt', iconv.encode(toSrt(make(zhS, 300, 1500)), 'gbk'));
+    z.addFile('House.S01E07.chs.srt', Buffer.from(toSrt(make(zhS, 120))));
+    return z.toBuffer();
+  })(),
   subdlZip: (() => {
     const z = new AdmZip();
     z.addFile('Shawshank.1994.BluRay-SPARKS.chs.srt', iconv.encode(toSrt(make(zhS, 300, 2500)), 'gbk'));
@@ -55,6 +62,15 @@ globalThis.fetch = async (url, opts = {}) => {
     return json({ link: `https://dl.example/os/${id}` });
   }
   if (u.host === 'dl.example') return new Response(u.pathname.endsWith('/11') ? files.en : u.pathname.endsWith('/22') ? files.zhMT : files.bilingual);
+  if (u.host === 'api.subdl.com' && u.searchParams.get('type') === 'tv') {
+    // A whole-season pack, plus a single-episode result for another episode.
+    if (u.searchParams.get('languages') === 'EN') return json({ status: true, subtitles: [] });
+    return json({ status: true, subtitles: [
+      { release_name: 'House.S01.Complete.BluRay', name: 'house.s01.zip', language: 'ZH', season: 1, episode: null, full_season: true, url: '/subtitle/80-80.zip' },
+      { release_name: 'House.S01E09.chs', name: 'house.s01e09.zip', language: 'ZH', season: 1, episode: 9, episode_from: 9, episode_end: 9, full_season: false, url: '/subtitle/81-81.zip' },
+    ] });
+  }
+  if (u.host === 'dl.subdl.com' && u.pathname.includes('80-80')) return new Response(files.seasonZip);
   if (u.host === 'api.subdl.com') return json({ status: true, subtitles: !withSubdl ? [] : [{ sd_id: 7, release_name: 'The.Shawshank.Redemption.1994.BluRay-SPARKS', name: 'SUBDL.shawshank.zip', lang: 'chinese', language: 'ZH', url: '/subtitle/7.zip' }] });
   if (u.host === 'dl.subdl.com') return new Response(files.subdlZip);
   if (u.host === 'api.assrt.net' && u.pathname.endsWith('/search')) {
@@ -95,5 +111,15 @@ assert.ok(r.chosen.ai);
 console.log('\n### Scenario 4: Chinese film → AI Chinese is never used');
 country = 'Hong Kong, China';
 await assert.rejects(run({ imdbId: 'tt0111161', release }), /no usable Chinese/);
+
+console.log('\n### Scenario 5: TV episode, Chinese only in a whole-season pack');
+country = 'United States';
+withSubdl = true;
+r = await run({ imdbId: 'tt0412142', season: 1, episode: 6 });
+assert.equal(r.mode, 'merged');
+assert.match(r.chosen.id, /House\.S01E06\.chs\.srt$/, r.chosen.id);
+assert.ok(!r.candidates.some((c) => /S01E0[57]/.test(c.id)), 'other episodes from the pack are not used');
+assert.ok(Math.abs(r.chosen.alignment.medianShiftMs + 1500) <= 150);
+assert.ok(r.srt.includes('你好，我们走吧。\nHello, let us go.'));
 
 console.log('\npipeline mock: all assertions passed');

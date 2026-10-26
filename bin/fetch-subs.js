@@ -4,10 +4,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { run } from '../src/pipeline.js';
 import { toSrt } from '../src/subtitle.js';
+import { parseVideoId } from '../src/episode.js';
 
-const USAGE = `Usage: node bin/fetch-subs.js <imdbId> [releaseFilename] [options]
+const USAGE = `Usage: node bin/fetch-subs.js <id> [releaseFilename] [options]
 
-  imdbId            movie IMDb id, e.g. tt0111161
+  id                movie IMDb id, e.g. tt0111161, or an episode as
+                    <show id>:<season>:<episode>, e.g. tt0412142:1:6
   releaseFilename   optional video file name, used for release matching
 
 Options:
@@ -29,8 +31,13 @@ if (values.help || !positionals[0]) {
   process.exit(values.help ? 0 : 1);
 }
 
-const [imdbId, release = null] = positionals;
-const outFile = values.out || path.join('out', `${imdbId}.zh-en.srt`);
+const [id, release = null] = positionals;
+const video = parseVideoId(id);
+if (!video) {
+  console.error(`Error: not an IMDb id or <id>:<season>:<episode>: ${id}`);
+  process.exit(1);
+}
+const outFile = values.out || path.join('out', `${id.replace(/:/g, '_')}.zh-en.srt`);
 
 const dump = values.dump
   ? async (candidates) => {
@@ -43,7 +50,7 @@ const dump = values.dump
   : null;
 
 try {
-  const result = await run({ imdbId, release, dump });
+  const result = await run({ ...video, release, dump });
   await mkdir(path.dirname(path.resolve(outFile)), { recursive: true });
   await writeFile(outFile, result.srt, 'utf8');
   console.log(`Wrote ${outFile}`);

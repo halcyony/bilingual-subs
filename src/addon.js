@@ -3,6 +3,7 @@ import sdk from 'stremio-addon-sdk';
 import { config } from './config.js';
 import { ensure, status, jobKey } from './jobs.js';
 import { parseVideoId, isEpisode, videoKey, videoLabel } from './episode.js';
+import { isAnimeId, resolveAnimeId } from './anime.js';
 
 const { addonBuilder } = sdk;
 
@@ -11,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.4.1';
+const pkgVersion = '0.5.0';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -19,8 +20,10 @@ export const manifest = {
   name: 'Bilingual Subs 中英双语',
   description: 'Chinese + English two-line subtitles. Finds an existing bilingual file, or merges the best Chinese and English subtitles, aligned with alass.',
   resources: ['subtitles'],
-  types: ['movie', 'series'],
-  idPrefixes: ['tt'],
+  // 'anime' for anime catalogs that use their own type name.
+  types: ['movie', 'series', 'anime'],
+  // Kitsu / MyAnimeList ids come from anime catalogs; see src/anime.js.
+  idPrefixes: ['tt', 'kitsu:', 'mal:'],
   catalogs: [],
 };
 
@@ -43,11 +46,22 @@ const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
 export function buildAddon(log = console.log) {
   const builder = new addonBuilder(manifest);
   builder.defineSubtitlesHandler(async ({ type, id, extra }) => {
-    const video = parseVideoId(id);
-    if (!video) return { subtitles: [] };
-    if (type === 'movie' ? isEpisode(video) : type !== 'series' || !isEpisode(video)) return { subtitles: [] };
+    let video;
+    try {
+      video = isAnimeId(id) ? await resolveAnimeId(id, log) : parseVideoId(id);
+    } catch (e) {
+      log(`subtitles request ${id}: ${e.message}`);
+      return { subtitles: [] };
+    }
+    if (!video) {
+      if (isAnimeId(id)) log(`subtitles request ${id}: no IMDb id known for it, skipped`);
+      return { subtitles: [] };
+    }
+    if (type === 'movie' && isEpisode(video)) return { subtitles: [] };
+    if (type === 'series' && !isEpisode(video)) return { subtitles: [] };
     const filename = extra?.filename || null;
-    log(`subtitles request ${videoLabel(video)}${filename ? ` (${filename})` : ''}`);
+    const via = isAnimeId(id) ? ` (from ${id})` : '';
+    log(`subtitles request ${videoLabel(video)}${via}${filename ? ` (${filename})` : ''}`);
 
     const s = await status(jobKey(video, filename));
     if (s.state === 'failed') return { subtitles: [], cacheMaxAge: 3600 };

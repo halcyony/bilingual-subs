@@ -17,6 +17,8 @@ function stripTags(text) {
   return text
     .replace(/<[^>]+>/g, '')
     .replace(/\{\\[^}]*\}/g, '')
+    // invisible text-direction marks some sources carry (LRM, RLM, embeddings)
+    .replace(/[‎‏‪-‮⁦-⁩]/g, '')
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !DRAWING.test(l) && !SHAPES_ONLY.test(l))

@@ -86,6 +86,12 @@ whole-season pack or an episode range. Those are downloaded once (and cached
 for the other episodes), and only the files named for this episode
 (`S01E06`, `1x06`, `第六集`, `EP06`…) are used.
 
+Anime catalogs identify titles by Kitsu or MyAnimeList ids, e.g.
+`kitsu:48649:1`. These are translated to the IMDb show, season and episode
+with the community list [Fribb/anime-lists](https://github.com/Fribb/anime-lists).
+The list is downloaded on first use and refreshed weekly. Titles missing from
+the list get no entry, and the log says so.
+
 ## Running on a server (Docker)
 
 GitHub Actions (`.github/workflows/docker.yml`) builds
@@ -245,6 +251,8 @@ src/release.js           release-name matching
 src/align.js             alass wrapper, fallback aligner, timing verdicts
 src/score.js             scoring weights
 src/merge.js             two-line merge
+src/episode.js           episode ids, episode matching in file names
+src/anime.js             Kitsu/MAL id → IMDb show + season
 tools/alass/             local alass-cli.exe (not in git; see "alass")
 .github/workflows/        image build for GHCR
 ```
@@ -253,9 +261,11 @@ tools/alass/             local alass-cli.exe (not in git; see "alass")
 
 * The original language is guessed from country, so a Hong Kong film shot in
   English would be treated as Chinese.
-* assrt's API server (`api.assrt.net`) timed out during testing on
-  2026-10-26, even though its website loaded. Its code follows the public docs
-  but hasn't run against the live API yet.
+* assrt's API was unreachable for about a day (2026-10-25/26), then came
+  back with a changed reply format. Search accepts both the documented and the
+  new fields. Its per-file download links now refuse with
+  402/`noMoneyException`, so whole archives are downloaded instead. assrt
+  mostly indexes Chinese releases of films and TV; it has little anime.
 * SubDL's language labels are unreliable. A file labeled Big5 Chinese turned
   out to be Arabic. Such files are caught because real Chinese is ~50% common
   characters, and garbled text is ~1%.

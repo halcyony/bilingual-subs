@@ -20,13 +20,30 @@ export function findAlass() {
   return alassBin;
 }
 
-function run(bin, args) {
+// alass normally takes a second or two. A hung process would hold a job slot
+// forever, so it is killed after a minute.
+const ALASS_TIMEOUT_MS = 60000;
+
+export function runProcess(bin, args, timeoutMs = ALASS_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const p = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      p.kill();
+    }, timeoutMs);
     p.stderr.on('data', (d) => (err += d));
-    p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`alass exited ${code}: ${err.slice(-300)}`))));
+    p.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      if (killed) reject(new Error(`alass timed out after ${timeoutMs / 1000}s`));
+      else if (code === 0) resolve();
+      else reject(new Error(`alass exited ${code}: ${err.slice(-300)}`));
+    });
   });
 }
 
@@ -38,7 +55,7 @@ async function alignAlass(bin, refCues, cues) {
     const out = path.join(dir, 'out.srt');
     await writeFile(ref, toSrt(refCues));
     await writeFile(inp, toSrt(cues));
-    await run(bin, [ref, inp, out]);
+    await runProcess(bin, [ref, inp, out]);
     return parse(await readFile(out, 'utf8'), 'out.srt');
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -81,6 +98,27 @@ function bestShift(refCues, cues, { scales = [1], maxShiftMs = 120000, step = 2 
     if (v > best.score) best = { ...best, shift: s, score: v };
   }
   return { scale: best.scale, shiftMs: best.shift * BIN, overlap: best.score };
+}
+
+// Share of the cues' on-screen time that falls on reference cues (0..1).
+// Subtitles for the same video score high once aligned; subtitles for a
+// different title stay near the reference's own dialogue density.
+export function overlapShare(refCues, cues) {
+  if (!refCues.length || !cues.length) return 0;
+  const len = Math.ceil(Math.max(...refCues.map((c) => c.end), ...cues.map((c) => c.end)) / BIN) + 2;
+  const prefix = new Int32Array(len + 1);
+  const occ = new Uint8Array(len);
+  for (const c of refCues) for (let i = Math.max(0, Math.floor(c.start / BIN)); i < Math.ceil(c.end / BIN) && i < len; i++) occ[i] = 1;
+  for (let i = 0; i < len; i++) prefix[i + 1] = prefix[i] + occ[i];
+  let on = 0;
+  let total = 0;
+  for (const c of cues) {
+    const a = Math.max(0, Math.min(len, Math.floor(c.start / BIN)));
+    const b = Math.max(0, Math.min(len, Math.ceil(c.end / BIN)));
+    on += prefix[b] - prefix[a];
+    total += b - a;
+  }
+  return total ? on / total : 0;
 }
 
 function alignFallback(refCues, cues) {

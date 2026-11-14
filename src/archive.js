@@ -5,6 +5,14 @@ import SevenZip from '7z-wasm';
 const SUB_EXT = /\.(srt|ass|ssa|vtt)$/i;
 export const isSubtitleName = (name) => SUB_EXT.test(name || '');
 
+// Whether a downloaded file is a subtitle at all, as opposed to an error page
+// or a "limit reached" message sent with a 200. Works on raw bytes: the markers
+// are ASCII in every encoding we read (NULs dropped for UTF-16).
+export function looksLikeSubtitle(buf) {
+  const head = buf.subarray(0, 200000).toString('latin1').replace(/\0/g, '');
+  return head.includes('-->') || /^\s*Dialogue\s*:/im.test(head);
+}
+
 const isZip = (b) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b;
 const isRar = (b) => b.length > 7 && b.subarray(0, 4).toString('latin1') === 'Rar!';
 const is7z = (b) => b.length > 6 && b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc;

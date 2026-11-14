@@ -79,6 +79,11 @@ async function getMaps(log) {
   return loading;
 }
 
+// Called at startup so the first anime request doesn't wait for the download.
+export function preloadAnimeList(log = () => {}) {
+  getMaps(log).catch((e) => log(`[anime] ${e.message}`));
+}
+
 export const isAnimeId = (id) => /^(kitsu|mal):\d+/.test(String(id));
 
 // "kitsu:48649:1" → { imdbId: 'tt26743760', season: 2, episode: 1 }.

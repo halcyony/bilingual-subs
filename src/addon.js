@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import sdk from 'stremio-addon-sdk';
 import { config } from './config.js';
-import { ensure, status, jobKey } from './jobs.js';
+import { ensure, status, jobKey, refreshIfStale } from './jobs.js';
 import { parseVideoId, isEpisode, videoKey, videoLabel } from './episode.js';
 import { isAnimeId, resolveAnimeId } from './anime.js';
 
@@ -12,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.6.2';
+const pkgVersion = '0.7.0';
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',
@@ -65,7 +65,11 @@ export function buildAddon(log = console.log) {
     log(`subtitles request ${videoLabel(video)}${via}${filename ? ` (${filename})` : ''}`);
 
     const s = await status(jobKey(video, filename));
-    if (s.state === 'failed') return { subtitles: [], cacheMaxAge: 3600 };
+    // An empty answer may be cached by the player only until the next retry.
+    const emptyFor = (retryInMs) => ({ subtitles: [], cacheMaxAge: Math.max(60, Math.min(3600, Math.ceil((retryInMs ?? 3600000) / 1000))) });
+    if (s.state === 'failed') return emptyFor(s.retryInMs);
+    // An old saved subtitle is rebuilt in the background; this one is served meanwhile.
+    if (s.state === 'ready') refreshIfStale(video, filename, log);
 
     // Give a fresh search a short head start, then answer with the entry
     // anyway: Nuvio drops late answers. Until the search finishes, the file
@@ -75,7 +79,7 @@ export function buildAddon(log = console.log) {
     if (!ready) {
       const job = ensure(video, filename, log);
       const done = await Promise.race([job, timeout(config.answerWaitMs)]);
-      if (done && !done.ok) return { subtitles: [], cacheMaxAge: 3600 };
+      if (done && !done.ok) return emptyFor(done.retryInMs);
       ready = Boolean(done?.ok);
       hasAlt = Boolean(done?.altFile);
     }

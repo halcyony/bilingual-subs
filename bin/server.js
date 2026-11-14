@@ -10,6 +10,8 @@ import { buildAddon, requestContext, manifest } from '../src/addon.js';
 import { ensure } from '../src/jobs.js';
 import { parseVideoId, videoLabel } from '../src/episode.js';
 import { findAlass } from '../src/align.js';
+import { preloadAnimeList } from '../src/anime.js';
+import { startHousekeeping } from '../src/housekeeping.js';
 
 const { getRouter } = sdk;
 const token = config.addonToken;
@@ -25,6 +27,16 @@ const log = (...a) => {
   appendFile(logFile, `${line}\n`).catch(() => {});
 };
 
+// A URL with a broken %-sequence must not throw inside the request logger:
+// an exception there would take the whole server down.
+const readableUrl = (url) => {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+};
+
 const app = express();
 
 // For container health checks; says nothing about the add-on.
@@ -35,7 +47,7 @@ app.use((req, res, next) => {
   const started = Date.now();
   res.on('finish', () => {
     const ua = (req.get('user-agent') || '-').slice(0, 80);
-    log(`HTTP ${req.method} ${decodeURIComponent(req.originalUrl).slice(0, 160)} -> ${res.statusCode} in ${Date.now() - started} ms  [${ua}]`);
+    log(`HTTP ${req.method} ${readableUrl(req.originalUrl).slice(0, 160)} -> ${res.statusCode} in ${Date.now() - started} ms  [${ua}]`);
   });
   next();
 });
@@ -89,7 +101,7 @@ routes.use(getRouter(buildAddon(log)));
 app.use(prefix || '/', routes);
 app.use((req, res) => res.status(404).end());
 
-app.listen(config.port, config.host, () => {
+const server = app.listen(config.port, config.host, () => {
   const lan = config.host === '127.0.0.1' ? [] : Object.values(os.networkInterfaces())
     .flat()
     .filter((i) => i && i.family === 'IPv4' && !i.internal)
@@ -99,4 +111,17 @@ app.listen(config.port, config.host, () => {
   if (config.publicUrl) log(`  public:        ${config.publicUrl}${token ? '/<ADDON_TOKEN>' : ''}/manifest.json`);
   log(`  this machine:  http://127.0.0.1:${config.port}${token ? '/<ADDON_TOKEN>' : ''}/manifest.json`);
   for (const ip of lan) log(`  local network: http://${ip}:${config.port}${token ? '/<ADDON_TOKEN>' : ''}/manifest.json`);
+
+  // Fetch the anime id list now, not inside the first anime request.
+  preloadAnimeList(log);
+  startHousekeeping(log);
 });
+
+// As PID 1 in a container Node ignores SIGTERM unless it is handled, which
+// makes `docker stop` wait out its 10 s grace period.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}

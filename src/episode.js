@@ -37,6 +37,9 @@ export function episodeOf(name) {
   if (m) return { season: null, episodes: [zhNumber(m[1]), zhNumber(m[1])] };
   m = n.match(/(?:^|[^a-z])(?:ep?|episode)[ ._-]*(\d{1,3})(?:[^\d]|$)/i);
   if (m) return { season: null, episodes: [+m[1], +m[1]] };
+  // Anime fansub style: "[Group] Title - 02 (1080p)", "Title - 26v2 [ABCD]".
+  m = n.match(/\s-\s*(\d{1,3})(?:v\d+)?(?=\s|$|[[(])/);
+  if (m) return { season: null, episodes: [+m[1], +m[1]] };
   return null;
 }
 
@@ -46,4 +49,35 @@ export function nameMatchesEpisode(name, season, episode) {
   if (!ep) return null;
   if (ep.season != null && ep.season !== season) return false;
   return episode >= ep.episodes[0] && episode <= ep.episodes[1];
+}
+
+// Episode number counted from the start of the show: season 2 episode 2 of a
+// show with a 24-episode first season is 26. null when it can't be worked out.
+export function runningTotal(seasonEpisodeCounts, season, episode) {
+  if (season == null || season < 2) return null;
+  let before = 0;
+  for (let s = 1; s < season; s++) {
+    if (!seasonEpisodeCounts?.[s]) return null; // incomplete season list
+    before += seasonEpisodeCounts[s];
+  }
+  return before + episode;
+}
+
+// From a pack's files, the ones for this episode. `absolute` is the episode's
+// running-total number (see above), used by packs that number a whole show
+// 01, 02 … 48 without seasons. A lone file with no episode marker is kept.
+export function pickEpisodeFiles(files, season, episode, absolute = null) {
+  const info = files.map((f) => episodeOf(f.name));
+  const inRange = (ep, n) => n >= ep.episodes[0] && n <= ep.episodes[1];
+  const matches = files.filter((f) => nameMatchesEpisode(f.name, season, episode) === true);
+  if (absolute != null) {
+    const byAbsolute = files.filter((_, i) => info[i] && info[i].season == null && inRange(info[i], absolute));
+    if (byAbsolute.length) {
+      // In such a pack a bare "02" is season 1's episode 2, not this one.
+      const withSeason = files.filter((_, i) => info[i]?.season === season && inRange(info[i], episode));
+      return [...new Set([...withSeason, ...byAbsolute])];
+    }
+  }
+  if (matches.length) return matches;
+  return files.length === 1 && info[0] === null ? files : [];
 }

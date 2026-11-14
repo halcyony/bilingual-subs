@@ -32,6 +32,36 @@ function looksUtf16(buf) {
   return null;
 }
 
+// A file that is UTF-8 apart from a few damaged bytes: at least ten valid
+// multi-byte characters for every invalid sequence. A legacy-encoded file
+// read as UTF-8 is the other way round (mostly invalid sequences).
+function mostlyValidUtf8(loose) {
+  let bad = 0;
+  let multi = 0;
+  for (const ch of loose) {
+    if (ch === '�') bad++;
+    else if (ch.codePointAt(0) >= 0x80) multi++;
+  }
+  return multi >= bad * 10;
+}
+
+// Western-European text (old English SRTs: curly quotes, accents) has few
+// non-ASCII bytes and they stand alone. Chinese in GBK/Big5 has many, and GBK
+// bytes come in pairs. Reading the former as GBK swallows the next letter
+// ("Don't" becomes "Don" plus a stray character).
+const WIN1252_MAX_HIGH_SHARE = 0.05;
+
+function looksWindows1252(buf) {
+  let high = 0;
+  let alone = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] < 0x80) continue;
+    high++;
+    if (!(buf[i - 1] >= 0x80) && !(buf[i + 1] >= 0x80)) alone++;
+  }
+  return high > 0 && high / buf.length < WIN1252_MAX_HIGH_SHARE && alone / high > 0.5;
+}
+
 // Returns { text, encoding }. Text is normalised to UTF-8 without BOM, \n line endings.
 export function decode(buf) {
   let encoding;
@@ -53,15 +83,25 @@ export function decode(buf) {
       text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
       encoding = 'utf-8';
     } catch {
-      // gb18030 is a superset of GBK/GB2312, so it decodes either.
-      const gbk = iconv.decode(buf, 'gb18030');
-      const big5 = iconv.decode(buf, 'big5');
-      if (score(big5) > score(gbk)) {
-        encoding = 'big5';
-        text = big5;
+      const loose = buf.toString('utf8');
+      if (mostlyValidUtf8(loose)) {
+        // UTF-8 with a few damaged bytes: keep it, the bad spots become U+FFFD.
+        encoding = 'utf-8';
+        text = loose;
+      } else if (looksWindows1252(buf)) {
+        encoding = 'windows-1252';
+        text = iconv.decode(buf, 'win1252');
       } else {
-        encoding = 'gbk';
-        text = gbk;
+        // gb18030 is a superset of GBK/GB2312, so it decodes either.
+        const gbk = iconv.decode(buf, 'gb18030');
+        const big5 = iconv.decode(buf, 'big5');
+        if (score(big5) > score(gbk)) {
+          encoding = 'big5';
+          text = big5;
+        } else {
+          encoding = 'gbk';
+          text = gbk;
+        }
       }
     }
   }

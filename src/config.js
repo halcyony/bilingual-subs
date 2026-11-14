@@ -33,12 +33,20 @@ export const config = {
   // OpenSubtitles counts every download against a daily quota (5 anonymous,
   // 100 for an "under dev" consumer), so it gets its own cap.
   maxOpenSubtitlesDownloads: int(process.env.MAX_OPENSUBTITLES_DOWNLOADS, 4),
+  // SubDL allows 50 downloads a day on its free plan. Chinese gets up to this
+  // many per title; its English is only fetched when OpenSubtitles has none.
+  maxSubdlDownloads: int(process.env.MAX_SUBDL_DOWNLOADS, 3),
   alassPath: process.env.ALASS_PATH || BUNDLED_ALASS,
   // Set CACHE_DIR= (empty) to disable the download cache.
   cacheDir: process.env.CACHE_DIR ?? path.join(DATA_DIR, 'cache'),
   // Finished subtitles served by the add-on.
   resultsDir: process.env.RESULTS_DIR || path.join(DATA_DIR, 'results'),
   logsDir: process.env.LOGS_DIR || path.join(DATA_DIR, 'logs'),
+  // Housekeeping: cached downloads older than this are deleted, as are saved
+  // subtitles nobody has played for this long; the log is rotated at this size.
+  cacheMaxAgeDays: int(process.env.CACHE_MAX_AGE_DAYS, 30),
+  resultsMaxAgeDays: int(process.env.RESULTS_MAX_AGE_DAYS, 60),
+  logMaxBytes: int(process.env.LOG_MAX_BYTES, 5 * 1024 * 1024),
   port: int(process.env.PORT, 7000),
   // 0.0.0.0 = reachable from other devices on your network; 127.0.0.1 = this PC only.
   host: process.env.HOST || '0.0.0.0',

@@ -10,9 +10,10 @@ import { classify, scriptOf, machineTranslationMarker } from '../src/detect.js';
 import { releaseMatch } from '../src/release.js';
 import { align } from '../src/align.js';
 import { mergeBilingual } from '../src/merge.js';
-import { extractArchive } from '../src/archive.js';
+import { extractArchive, looksLikeSubtitle } from '../src/archive.js';
 import { scoreCandidate } from '../src/score.js';
-import { parseVideoId, nameMatchesEpisode } from '../src/episode.js';
+import { parseVideoId, nameMatchesEpisode, pickEpisodeFiles, runningTotal } from '../src/episode.js';
+import { titleInNames } from '../src/providers/assrt.js';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -194,6 +195,74 @@ await test('score ordering: any human file beats an AI one', () => {
   const ai = scoreCandidate(cand({ lang: 'bilingual', script: 'simplified', release: { score: 1 }, alignment: timing('in-sync'), ai: 'flag' }), { refCueCount: 60 });
   const zh = scoreCandidate(cand({ lang: 'zh', script: 'traditional', alignment: timing('drift', false) }), { refCueCount: 600 });
   assert.ok(zh.total > ai.total, `${zh.total} vs ${ai.total}`);
+});
+
+await test('English in Windows-1252 keeps its apostrophes and accents', () => {
+  const lines = ['Don’t stop now.', 'Café at nine…', 'It’s fine, really.', 'We’ll see about that.', 'She said “hello” to him.'];
+  const r = decode(iconv.encode(toSrt(make(lines)), 'win1252'));
+  assert.equal(r.encoding, 'windows-1252');
+  assert.ok(r.text.includes('Don’t stop now.'), r.text.slice(0, 120));
+  assert.ok(r.text.includes('Café at nine…'));
+  assert.equal(classify(parse(r.text, 'x.srt')).lang, 'en');
+});
+
+await test('mostly-English GBK file with a few Chinese lines is still read as GBK', () => {
+  const lines = [...en, ...en, ...en, '字幕组制作，谢谢观看'];
+  const r = decode(iconv.encode(toSrt(make(lines, 64)), 'gbk'));
+  assert.equal(r.encoding, 'gbk');
+  assert.ok(r.text.includes('字幕组制作'));
+});
+
+await test('UTF-8 with one damaged byte is still read as UTF-8', () => {
+  const good = Buffer.from(toSrt(make(zhS)));
+  const r = decode(Buffer.concat([good.subarray(0, 500), Buffer.from([0xff]), good.subarray(500)]));
+  assert.equal(r.encoding, 'utf-8');
+  const cues = parse(r.text, 'x.srt');
+  assert.equal(cues.length, 60);
+  assert.equal(classify(cues).lang, 'zh');
+});
+
+await test('SRT without blank lines between cues', () => {
+  const src = make(en, 30);
+  const tight = toSrt(src).replace(/\n\n/g, '\n');
+  const cues = parse(tight, 'x.srt');
+  assert.equal(cues.length, 30);
+  assert.deepEqual(cues.map((c) => c.text), src.map((c) => c.text), 'cue numbers must not leak into the text');
+  // a cue whose own text is a number keeps it when blank lines are present
+  assert.equal(parse('1\n00:00:01,000 --> 00:00:02,000\n1994\n\n2\n00:00:03,000 --> 00:00:04,000\nHello there\n', 'x.srt')[0].text, '1994');
+});
+
+await test('anime pack file names and running-total episode numbers', () => {
+  assert.equal(nameMatchesEpisode('[Group] Show - 02 [1080p].srt', 1, 2), true);
+  assert.equal(nameMatchesEpisode('[Group] Show - 03v2 (1080p) [ABCD1234].ass', 1, 2), false);
+  assert.equal(nameMatchesEpisode('Movie - 1080p.srt', 1, 2), null);
+  assert.equal(runningTotal({ 1: 24, 2: 24 }, 2, 2), 26);
+  assert.equal(runningTotal({ 1: 24 }, 1, 2), null);
+  assert.equal(runningTotal({ 2: 24 }, 2, 2), null);
+  const pack = ['[G] Show - 02 [1080p].ass', '[G] Show - 26 [1080p].ass', '[G] Show - 27 [1080p].ass'].map((name) => ({ name }));
+  assert.deepEqual(pickEpisodeFiles(pack, 2, 2, 26).map((f) => f.name), ['[G] Show - 26 [1080p].ass']);
+  assert.deepEqual(pickEpisodeFiles(pack, 1, 2, null).map((f) => f.name), ['[G] Show - 02 [1080p].ass']);
+  const seasoned = ['Show.S02E02.srt', 'Show.S02E03.srt'].map((name) => ({ name }));
+  assert.deepEqual(pickEpisodeFiles(seasoned, 2, 2, 26).map((f) => f.name), ['Show.S02E02.srt']);
+  assert.deepEqual(pickEpisodeFiles([{ name: 'whatever.srt' }], 2, 2, 26).map((f) => f.name), ['whatever.srt']);
+});
+
+await test('error pages are not mistaken for subtitles', () => {
+  assert.equal(looksLikeSubtitle(Buffer.from('<html><body>Daily limit reached</body></html>')), false);
+  assert.equal(looksLikeSubtitle(Buffer.from('{"error":"api_download_limit_exceeded"}')), false);
+  assert.equal(looksLikeSubtitle(Buffer.from(toSrt(make(en)))), true);
+  assert.equal(looksLikeSubtitle(iconv.encode(toSrt(make(zhS)), 'utf16le')), true);
+  assert.equal(looksLikeSubtitle(Buffer.from('[Script Info]\n\n[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hi\n')), true);
+});
+
+await test('assrt hits must carry the title', () => {
+  assert.equal(titleInNames('Heat', ['Heat.1995.REMASTERED.BDRip.X264.iNT-TLF']), true);
+  assert.equal(titleInNames('Heat', ['The Heat’s On']), false);
+  assert.equal(titleInNames('Heat', ['ER.S01.1080p.WEBRip.DDP2.0.x264']), false);
+  assert.equal(titleInNames('The Dark Knight', ['The.Dark.Knight.2008.1080p.BluRay']), true);
+  assert.equal(titleInNames('The Dark Knight', ['Dark.Shadows.2012']), false);
+  assert.equal(titleInNames('Harry Potter and the Sorcerer’s Stone', ['Harry.Potter.and.the.Philosophers.Stone.2001']), true);
+  assert.equal(titleInNames('The Shawshank Redemption', ['不知道', 'The.Shawshank.Redemption.1994.2160p']), true);
 });
 
 console.log(`\n${passed} passed`);

@@ -5,6 +5,28 @@ import { nameMatchesEpisode } from '../episode.js';
 
 const NAME = 'assrt';
 
+const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to', 'for']);
+const wordsOf = (s) => String(s || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+
+// assrt matches loosely: a search for "Heat" also returns "ER", "The Practice"
+// and "The Heat's On". Keep a hit only if one of its names carries the title:
+// every word of a one- or two-word title, most words of a longer one (release
+// names shorten long titles and differ between countries).
+export function titleInNames(title, names) {
+  const all = wordsOf(title);
+  const key = all.filter((w) => !STOP_WORDS.has(w));
+  const want = key.length ? key : all;
+  if (!want.length) return true; // nothing to compare with (non-Latin title)
+  const need = want.length <= 2 ? want.length : Math.ceil(want.length * 0.6);
+  return names.some((n) => {
+    const have = new Set(wordsOf(n));
+    return want.filter((w) => have.has(w)).length >= need;
+  });
+}
+
+// "S08E01", "S01", "Season 2", "第二季": a TV release, not a film.
+const TV_MARKER = /\bS\d{1,2}(E\d{1,3})?\b|\bseason\s*\d+|第\s*[\d一二三四五六七八九十]+\s*季/i;
+
 // assrt has no IMDb lookup, so we search by title and drop hits whose
 // name carries a different year.
 export async function search({ meta, season, episode }, log) {
@@ -31,6 +53,8 @@ export async function search({ meta, season, episode }, log) {
     const id = s.id ?? s.fileid;
     if (!id) continue;
     const names = [...new Set([s.videoname, s.native_name, s.m_videoname, s.video_chinese_name, s.m_title].filter(Boolean))];
+    if (!titleInNames(title, names)) continue;
+    if (!episodeQuery && names.some((n) => TV_MARKER.test(n))) continue;
     if (episodeQuery) {
       // Season packs (no episode in the name) stay; the file is picked later.
       if (names.some((n) => nameMatchesEpisode(n, season, episode) === false)) continue;
@@ -45,6 +69,7 @@ export async function search({ meta, season, episode }, log) {
     const source = s.m_source || s.m_extras?.producer?.source || '';
     out.push({
       provider: NAME,
+      byId: false, // found by name: may be another title, checked in pipeline.js
       id: `${NAME}:${id}`,
       releases: names,
       labelLang: ll.langdou ? 'zh+en' : hasZh ? 'zh' : ll.langeng ? 'en' : (s.lang?.desc || s.m_lang || '?'),

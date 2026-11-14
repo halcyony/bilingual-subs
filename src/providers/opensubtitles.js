@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { getJson, getBuffer, sleep } from '../http.js';
+import { runningTotal } from '../episode.js';
 
 const NAME = 'opensubtitles';
 let session = null; // { token, base }
@@ -31,13 +32,7 @@ async function ensureLogin(log) {
 // For season 2+, the running-total number is searched too.
 async function runningTotalEpisode(meta, season, episode) {
   if (season == null || season < 2 || !meta) return null;
-  const counts = (await meta).seasonEpisodeCounts || {};
-  let before = 0;
-  for (let s = 1; s < season; s++) {
-    if (!counts[s]) return null; // incomplete season list: can't compute it
-    before += counts[s];
-  }
-  return before ? before + episode : null;
+  return runningTotal((await meta).seasonEpisodeCounts, season, episode);
 }
 
 export async function search({ imdbId, season, episode, meta }, log) {
@@ -76,6 +71,7 @@ export async function search({ imdbId, season, episode, meta }, log) {
       seen.add(a.subtitle_id);
       out.push({
         provider: NAME,
+        byId: true, // found by IMDb id, so it is for this title
         id: `${NAME}:${a.subtitle_id}`,
         releases: [a.release, file.file_name].filter(Boolean),
         labelLang: String(a.language || '').toLowerCase(),
@@ -92,18 +88,20 @@ export async function search({ imdbId, season, episode, meta }, log) {
   return out;
 }
 
-// OpenSubtitles rejects bursts of requests (HTTP 429), so downloads run one at
-// a time with a short gap, and a 429 is retried after a pause.
+// OpenSubtitles rejects bursts of API requests (HTTP 429), so the requests for
+// download links run one at a time with a short gap, and a 429 is retried
+// after a pause. The files themselves come from a file server and are fetched
+// in parallel, outside the queue.
 let queue = Promise.resolve();
 const GAP_MS = 400;
 
-function download(fileId, fileName) {
-  const job = queue.then(() => downloadNow(fileId, fileName));
-  queue = job.catch(() => {}).then(() => sleep(GAP_MS));
-  return job;
+async function download(fileId, fileName) {
+  const link = queue.then(() => requestLink(fileId));
+  queue = link.catch(() => {}).then(() => sleep(GAP_MS));
+  return [{ name: `${fileName || fileId}.srt`, data: await getBuffer(await link) }];
 }
 
-async function downloadNow(fileId, fileName, attempt = 1) {
+async function requestLink(fileId, attempt = 1) {
   const base = session?.base || config.opensubtitles.baseUrl;
   let res;
   try {
@@ -115,10 +113,10 @@ async function downloadNow(fileId, fileName, attempt = 1) {
   } catch (e) {
     if (e.status === 429 && attempt < 3) {
       await sleep(1500 * attempt);
-      return downloadNow(fileId, fileName, attempt + 1);
+      return requestLink(fileId, attempt + 1);
     }
     throw e;
   }
   if (!res.link) throw new Error(`no download link (${res.message || 'quota?'})`);
-  return [{ name: `${fileName || fileId}.srt`, data: await getBuffer(res.link) }];
+  return res.link;
 }

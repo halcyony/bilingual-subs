@@ -25,20 +25,45 @@ function stripTags(text) {
     .join('\n');
 }
 
+const SHORT_TIME = /(\d{1,2}):(\d{2})[,.](\d{1,3})/;
+
+// "00:00:01,000 --> 00:00:02,000" (or the VTT mm:ss.ttt form) → { start, end }.
+function timingOf(line) {
+  if (!line.includes('-->')) return null;
+  const [a, b] = line.split('-->');
+  const ma = a.match(TIME) || a.match(SHORT_TIME);
+  const mb = b?.match(TIME) || b?.match(SHORT_TIME);
+  if (!ma || !mb) return null;
+  return {
+    start: ma.length === 5 ? toMs(ma[1], ma[2], ma[3], ma[4]) : toMs(0, ma[1], ma[2], ma[3]),
+    end: mb.length === 5 ? toMs(mb[1], mb[2], mb[3], mb[4]) : toMs(0, mb[1], mb[2], mb[3]),
+  };
+}
+
 function parseSrtLike(text) {
   const cues = [];
+  const push = (cue) => {
+    const body = stripTags(cue.lines.join('\n'));
+    if (body) cues.push({ start: cue.start, end: cue.end, text: body });
+  };
   for (const block of text.split(/\n\s*\n/)) {
-    const lines = block.split('\n');
-    const idx = lines.findIndex((l) => l.includes('-->'));
-    if (idx === -1) continue;
-    const [a, b] = lines[idx].split('-->');
-    const ma = a.match(TIME) || a.match(/(\d{1,2}):(\d{2})[,.](\d{1,3})/);
-    const mb = b?.match(TIME) || b?.match(/(\d{1,2}):(\d{2})[,.](\d{1,3})/);
-    if (!ma || !mb) continue;
-    const start = ma.length === 5 ? toMs(ma[1], ma[2], ma[3], ma[4]) : toMs(0, ma[1], ma[2], ma[3]);
-    const end = mb.length === 5 ? toMs(mb[1], mb[2], mb[3], mb[4]) : toMs(0, mb[1], mb[2], mb[3]);
-    const body = stripTags(lines.slice(idx + 1).join('\n'));
-    if (body) cues.push({ start, end, text: body });
+    // Normally one cue per block. Some files have no blank lines between
+    // cues, so every timing line inside a block starts a new cue.
+    let cur = null;
+    for (const line of block.split('\n')) {
+      const t = timingOf(line);
+      if (t) {
+        if (cur) {
+          // The line right above a timing line is the next cue's number.
+          if (/^\d+$/.test((cur.lines.at(-1) || '').trim())) cur.lines.pop();
+          push(cur);
+        }
+        cur = { ...t, lines: [] };
+      } else if (cur) {
+        cur.lines.push(line);
+      }
+    }
+    if (cur) push(cur);
   }
   return cues;
 }

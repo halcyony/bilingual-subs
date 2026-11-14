@@ -36,7 +36,12 @@ export async function search({ imdbId, season, episode }, log) {
       comment: '1',
     });
     const res = await getJson(`${config.subdl.baseUrl}/subtitles?${qs}`);
-    if (res.status === false) throw new Error(res.error || res.message || 'search failed');
+    if (res.status === false) {
+      const msg = res.error || res.message || 'search failed';
+      // SubDL not knowing the title is an answer ("nothing here"), not a failure.
+      if (/can'?t find|not found/i.test(msg)) return [];
+      throw new Error(msg);
+    }
     return res.subtitles || [];
   });
   let subs = (await Promise.all(queries)).flat();
@@ -47,13 +52,38 @@ export async function search({ imdbId, season, episode }, log) {
     const urlPath = String(s.url || '').split('?')[0];
     return {
       provider: NAME,
+      byId: true, // found by IMDb id, so it is for this title
       id: `${NAME}:${urlPath.replace(/^\/subtitle\//, '').replace(/\.zip$/, '') || s.sd_id || i}`,
       releases: [s.release_name, s.name, ...(s.releases || [])].filter(Boolean),
       labelLang: lang.startsWith('en') ? 'en' : lang,
       downloads: 0, // SubDL's API does not expose download counts
       flags: { aiTranslated: false, machineTranslated: false },
       text: [s.release_name, s.name, s.comment, s.author].filter(Boolean).join(' '),
-      download: async () => extractArchive(`${s.name || 'subdl'}.zip`, await getBuffer(`${config.subdl.downloadBase}${s.url}`)),
+      download: () => download(s),
     };
   });
+}
+
+// SubDL's free plan allows 50 downloads a day. Once it answers "limit
+// reached", further downloads are skipped until the time it gives, so they
+// don't cost a request each.
+let quotaUntil = 0;
+
+async function download(s) {
+  if (Date.now() < quotaUntil) throw new Error('SubDL daily download limit reached; skipped until it resets');
+  try {
+    return await extractArchive(`${s.name || 'subdl'}.zip`, await getBuffer(`${config.subdl.downloadBase}${s.url}`));
+  } catch (e) {
+    if (e.status === 429 && /limit/i.test(e.body || '')) {
+      let retryAfterSeconds = 3600;
+      try {
+        retryAfterSeconds = Number(JSON.parse(e.body).retryAfterSeconds) || retryAfterSeconds;
+      } catch {
+        // not JSON: keep the one-hour default
+      }
+      quotaUntil = Date.now() + retryAfterSeconds * 1000;
+      throw new Error(`SubDL daily download limit reached; resets in ${Math.ceil(retryAfterSeconds / 3600)} h`);
+    }
+    throw e;
+  }
 }

@@ -26,8 +26,12 @@ cp .env.example .env    # then fill in keys
 | `ASSRT_TOKEN` | assrt.net |
 | `MAX_DOWNLOADS_PER_PROVIDER` | SubDL/assrt downloads per language bucket (default 4) |
 | `MAX_OPENSUBTITLES_DOWNLOADS` | OpenSubtitles downloads per language bucket (default 1) |
+| `MAX_SUBDL_DOWNLOADS` | SubDL Chinese downloads per title (default 3). SubDL's free plan allows 50 a day, so its English is only fetched when OpenSubtitles has none |
 | `ALASS_PATH` | override the bundled alass |
 | `CACHE_DIR` | download cache folder (default `cache/`; set empty to disable) |
+| `CACHE_MAX_AGE_DAYS` | cached downloads older than this are deleted (default 30) |
+| `RESULTS_MAX_AGE_DAYS` | saved subtitles nobody has played for this long are deleted (default 60) |
+| `LOG_MAX_BYTES` | `logs/addon.log` is rotated to `addon.log.1` at this size (default 5 MB) |
 
 Any provider without a key is skipped and logged as skipped.
 
@@ -38,8 +42,9 @@ logging in, or 100 if the API consumer has **Under dev** ticked.
 
 One run downloads at most 6 files from OpenSubtitles: 2 English and 4
 Chinese. Chinese subs whose name suggests bilingual (`简体&英文`, `chs-eng`,
-`中英`…) go first. Downloads run one at a time, because OpenSubtitles rejects
-bursts. They are cached in `cache/`, so re-running a movie costs nothing.
+`中英`…) go first. The requests for download links run one at a time, because
+OpenSubtitles rejects bursts; the files themselves are fetched in parallel.
+They are cached in `cache/`, so re-running a movie costs nothing.
 
 ### alass
 
@@ -70,11 +75,19 @@ How it behaves:
   (`ANSWER_WAIT_MS`). A slower search still returns the subtitle entry, and
   opening it waits for the search to finish.
 * Results are saved in `results/` per movie and release filename, so the
-  second time is instant. "No Chinese subtitles" is remembered for 6 hours.
+  second time is instant. A saved subtitle played again after 7 days is
+  rebuilt in the background (after 6 hours if a provider failed while it was
+  built); the saved one is served meanwhile.
+* "No Chinese subtitles" is remembered for 6 hours when every search and
+  download worked, and for 10 minutes when something failed on the way (a
+  provider down, a download limit reached).
+* A Chinese file is dropped when its timing can't be matched to the English
+  subtitle, and a bilingual file when its English lines aren't this title's.
+  Searches by name bring in files for other titles; these two checks catch them.
 * The subtitle is listed as Chinese (`chi`). Set `SUBTITLE_LANG=中英双语` to
   list it under its own name.
-* A site that can't be reached (like assrt right now) is given 6 s, then
-  skipped for 15 minutes.
+* A site that can't be reached is given 6 s. After two failures in a row it
+  is skipped for 15 minutes.
 
 Settings in `.env`: `PORT` (7000), `HOST` (`0.0.0.0`, or `127.0.0.1` for
 this PC only), `SUBTITLE_LANG`, `ANSWER_WAIT_MS`.
@@ -236,8 +249,12 @@ hear your video. That's why the English reference is picked by release match.
 ## Tests
 
 ```bash
-npm test    # offline checks + full pipeline against stubbed provider APIs
+npm test    # three files, no network or keys needed
 ```
+
+* `test/selftest.js`: parsing, encodings, detection, alignment, merge.
+* `test/pipeline.mock.js`: the full pipeline and job handling against stubbed provider APIs.
+* `test/robustness.js`: timeouts, retries, the download cache, housekeeping and the server, using a local HTTP server and temp folders.
 
 ## Layout
 
@@ -261,6 +278,7 @@ src/score.js             scoring weights
 src/merge.js             two-line merge
 src/episode.js           episode ids, episode matching in file names
 src/anime.js             Kitsu/MAL id → IMDb show + season
+src/housekeeping.js      prunes old downloads and results, rotates the log
 tools/alass/             local alass-cli.exe (not in git; see "alass")
 .github/workflows/        image build for GHCR
 ```

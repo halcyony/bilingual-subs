@@ -32,6 +32,9 @@ cp .env.example .env    # then fill in keys
 | `CACHE_MAX_AGE_DAYS` | cached downloads older than this are deleted (default 30) |
 | `RESULTS_MAX_AGE_DAYS` | saved subtitles nobody has played for this long are deleted (default 60) |
 | `LOG_MAX_BYTES` | `logs/addon.log` is rotated to `addon.log.1` at this size (default 5 MB) |
+| `DEEPL_API_KEY` | optional: machine-translate the English when no Chinese subtitle exists (DeepL's free Developer plan: 1,000,000 characters once, not renewed) |
+| `ANTHROPIC_API_KEY` | optional: translate with Claude when DeepL's allowance is used up or it fails (or alone, without DeepL) |
+| `TRANSLATE_MODEL` | Claude model for translation (default `claude-haiku-5-5`) |
 
 Any provider without a key is skipped and logged as skipped.
 
@@ -191,6 +194,14 @@ node bin/fetch-subs.js tt0412142:1:6          # House, season 1 episode 6
    * The allowed AI/MT side is used only as a last resort. These subs are
      downloaded only when no human-made sub for that side turns up, and they
      score below every human-made file.
+   * If no Chinese sub exists at all (not even an AI one) and the film is not
+     Chinese-original, the English sub found by IMDb id is machine-translated
+     when `DEEPL_API_KEY` or `ANTHROPIC_API_KEY` is set: DeepL first, Claude
+     (`TRANSLATE_MODEL`) when DeepL's allowance is used up or it
+     fails. DeepL's remaining allowance is checked first, so a translation is
+     never left half done. The result starts with a 【机器翻译】 line, is
+     cached per English file (translated once), and is rebuilt every 6 hours
+     like a degraded result, so a human Chinese sub replaces it once uploaded.
 
    A sub counts as AI/MT if OpenSubtitles flags it (`ai_translated` /
    `machine_translated`), or if its name, comment or credit lines say so
@@ -276,6 +287,7 @@ src/release.js           release-name matching
 src/align.js             alass wrapper, fallback aligner, timing verdicts
 src/score.js             scoring weights
 src/merge.js             two-line merge
+src/translate.js         DeepL / Claude translation when no Chinese exists
 src/episode.js           episode ids, episode matching in file names
 src/anime.js             Kitsu/MAL id → IMDb show + season
 src/housekeeping.js      prunes old downloads and results, rotates the log
@@ -295,4 +307,5 @@ tools/alass/             local alass-cli.exe (not in git; see "alass")
 * SubDL's language labels are unreliable. A file labeled Big5 Chinese turned
   out to be Arabic. Such files are caught because real Chinese is ~50% common
   characters, and garbled text is ~1%.
-* No built-in translation. AI subs are only used when a site already offers them.
+* Translation covers only English to Chinese. A Chinese-original title with no
+  human Chinese sub still gets nothing (see NOTES.md, finding 36).

@@ -14,6 +14,7 @@ import { scoreCandidate } from './score.js';
 import { mergeBilingual, normaliseBilingual } from './merge.js';
 import { isEpisode, pickEpisodeFiles, runningTotal, videoLabel } from './episode.js';
 import { looksLikeSubtitle } from './archive.js';
+import { translateCues, translationConfigured } from './translate.js';
 
 const PROVIDERS = { opensubtitles, subdl, assrt };
 const MIN_CUES = 20;
@@ -248,6 +249,44 @@ function noSubtitles(trouble) {
   return e;
 }
 
+// Last resort when no Chinese subtitle exists at all: translate the English
+// reference. Only for titles whose original language isn't Chinese (the
+// original side must be human-made), and only with English found by IMDb id.
+// The result is rebuilt like a degraded one, so a human Chinese subtitle
+// replaces it once one is uploaded; the translation itself is cached.
+async function machineTranslated({ english, orig, meta, candidates, trouble, log }) {
+  if (orig === 'zh' || !translationConfigured()) return null;
+  const reference = pickEnglishReference(english.filter((c) => c.byId));
+  if (!reference) return null;
+  log(`\n== No Chinese subtitle found: machine-translating the English (${reference.id})`);
+  let t;
+  try {
+    t = await translateCues(reference, { title: meta.title, log });
+  } catch (e) {
+    trouble.push(`translation: ${e.message}`);
+    log(`  translation failed: ${e.message}`);
+    return null;
+  }
+  const zh = reference.cues.map((c, i) => ({ start: c.start, end: c.end, text: t.lines[i] })).filter((c) => c.text);
+  const out = mergeBilingual(zh, reference.cues);
+  // Say once, at the start, that the Chinese is machine-made.
+  const note = '【机器翻译】';
+  if (out.length && out[0].start >= 3000) out.unshift({ start: 0, end: 2500, text: note });
+  else if (out.length) out[0] = { ...out[0], text: `${note}${out[0].text}` };
+  log(`\n== Result: translated from ${reference.id} by ${t.engine} (${out.length} cues)`);
+  return {
+    srt: toSrt(out),
+    altSrt: null,
+    altShiftMs: null,
+    mode: 'translated',
+    chosen: { ...reference, id: `${reference.id} (${t.engine})`, ai: `machine-translated by ${t.engine}` },
+    reference,
+    candidates,
+    degraded: true,
+    trouble,
+  };
+}
+
 function describeTiming(a) {
   if (!a) return 'not aligned';
   const t = a.timing;
@@ -350,7 +389,8 @@ export async function run({ imdbId, season = null, episode = null, release = nul
     log(`  English was only found by name search (${english.length} file(s)): not used as the timing reference`);
     english = [];
   }
-  if (!chinese.length) throw noSubtitles(trouble);
+  const lastResort = async () => (await machineTranslated({ english, orig, meta, candidates, trouble, log })) || Promise.reject(noSubtitles(trouble));
+  if (!chinese.length) return lastResort();
 
   const reference = pickEnglishReference(english);
   let refCues = reference?.cues || null;
@@ -406,7 +446,7 @@ export async function run({ imdbId, season = null, episode = null, release = nul
       settle();
     }
   }
-  if (!chinese.length) throw noSubtitles(trouble);
+  if (!chinese.length) return lastResort();
   for (const c of chinese) {
     const b = c.breakdown;
     log(`  ${String(c.score).padStart(5)}  ${c.id}`);

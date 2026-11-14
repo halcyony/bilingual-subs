@@ -14,6 +14,9 @@ process.env.SUBDL_API_KEY = 'test';
 process.env.ASSRT_TOKEN = 'test';
 process.env.CACHE_DIR = ''; // no cache: each scenario must really download
 process.env.RESULTS_DIR = mkdtempSync(path.join(tmpdir(), 'bisubs-results-'));
+// Translation is off unless a scenario turns it on (keys in a local .env must not leak in).
+process.env.DEEPL_API_KEY = '';
+process.env.ANTHROPIC_API_KEY = '';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -74,7 +77,11 @@ let subdlMode = 'ok'; // 'ok' | 'otherTiming' | 'searchFails' | 'quota'
 let subdlEnglish = false;
 let osEnglish = true;
 let country = 'United States';
-const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0 };
+let osChinese = true;
+let deeplMode = 'ok'; // 'ok' | 'usedUp' | 'quota456' | 'down'
+let claudeMode = 'ok'; // 'ok' | 'down'
+const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [] };
+const toZh = (line) => zhS[en.indexOf(line)] ?? `译${line}`;
 
 const json = (o, init = {}) => new Response(JSON.stringify(o), { ...init, headers: { 'content-type': 'application/json' } });
 globalThis.fetch = async (url, opts = {}) => {
@@ -83,6 +90,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.host === 'api.opensubtitles.com' && u.pathname.endsWith('/subtitles')) {
     const isEn = u.searchParams.get('languages') === 'en';
     if (isEn && !osEnglish) return json({ data: [] });
+    if (!isEn && !osChinese) return json({ data: [] });
     const attrs = isEn
       ? { subtitle_id: '1', language: 'en', download_count: 900, release: 'The.Shawshank.Redemption.1994.1080p.BluRay.x264-SPARKS', files: [{ file_id: 11, file_name: 'shawshank.en' }] }
       : { subtitle_id: '2', language: 'zh-cn', download_count: 5000, machine_translated: true, release: 'Shawshank BluRay-SPARKS', files: [{ file_id: 22, file_name: 'shawshank.zh' }] };
@@ -148,6 +156,28 @@ globalThis.fetch = async (url, opts = {}) => {
       ] }] } });
     }
     return json({ status: 0, sub: { subs: [{ filelist: [{ f: 'shawshank.chs&eng.srt', url: `https://dl.example/assrt/${id}` }] }] } });
+  }
+  if (u.host === 'api-free.deepl.com') {
+    assert.equal(opts.headers.Authorization, 'DeepL-Auth-Key deepl-test:fx');
+    if (deeplMode === 'down') return new Response('unavailable', { status: 503 });
+    if (u.pathname === '/v2/usage') return json({ character_count: deeplMode === 'usedUp' ? 499990 : 1000, character_limit: 500000 });
+    calls.deeplTranslate++;
+    if (deeplMode === 'quota456') return json({ message: 'Quota exceeded' }, { status: 456 });
+    const body = JSON.parse(opts.body);
+    assert.equal(body.target_lang, 'ZH-HANS');
+    assert.ok(body.text.length <= 50, 'DeepL takes at most 50 texts per request');
+    return json({ translations: body.text.map((t) => ({ detected_source_language: 'EN', text: toZh(t) })) });
+  }
+  if (u.host === 'api.anthropic.com' && u.pathname === '/v1/messages') {
+    calls.claude++;
+    if (claudeMode === 'down') return json({ type: 'error', error: { type: 'invalid_request_error', message: 'credit balance too low' } }, { status: 400 });
+    const body = JSON.parse(opts.body);
+    calls.claudeModels.push(body.model);
+    assert.equal(body.output_config.format.type, 'json_schema');
+    const prompt = body.messages[0].content;
+    const items = JSON.parse(prompt.slice(prompt.indexOf('Translate:\n') + 'Translate:\n'.length));
+    const text = JSON.stringify({ lines: items.map((it) => ({ i: it.i, zh: toZh(it.en) })) });
+    return json({ id: 'msg_test', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
   }
   throw new Error(`unexpected fetch ${url}`);
 };
@@ -301,5 +331,64 @@ const firstRun = calls.subdlDownload;
 assert.ok(firstRun >= 1);
 r = await run({ imdbId: 'tt0111161', release, log: quiet });
 assert.equal(calls.subdlDownload, firstRun, 'no further requests once the limit was reported');
+
+console.log('\n### Scenario 14: no Chinese subtitle anywhere and no translation key → nothing is served');
+const { config } = await import('../src/config.js');
+osChinese = false;
+withSubdl = false;
+assrtMode = 'none';
+await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), { code: 'NO_SUBTITLES' });
+
+console.log('\n### Scenario 15: no Chinese subtitle anywhere → DeepL translates the English');
+config.translate.deeplKey = 'deepl-test:fx';
+config.translate.anthropicKey = 'claude-test';
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'translated');
+assert.match(r.chosen.ai, /DeepL/);
+assert.equal(r.chosen.provider, 'opensubtitles', 'translated from the English found by IMDb id');
+assert.ok(r.srt.includes('这个地方真的很安静。\nThis place is really quiet.'), 'Chinese line above the English line');
+assert.match(r.srt, /^1\n00:00:00,000 --> 00:00:02,500\n【机器翻译】\n/, 'says once that it is machine-translated');
+assert.equal(r.degraded, true, 'rebuilt early, so a human Chinese subtitle replaces it when one appears');
+assert.equal(calls.claude, 0, 'Claude is not used while DeepL works');
+
+console.log('\n### Scenario 16: DeepL allowance used up → Claude Haiku translates instead');
+deeplMode = 'usedUp';
+calls.deeplTranslate = 0;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'translated');
+assert.match(r.chosen.ai, /claude-haiku-5-5/);
+assert.equal(calls.deeplTranslate, 0, 'no DeepL translation started that could not finish');
+assert.ok(calls.claude >= 3, '300 lines go in several requests');
+assert.ok(calls.claudeModels.every((m) => m === 'claude-haiku-5-5'));
+assert.ok(r.srt.includes('希望是一件好事。\nHope is a good thing.'));
+
+console.log('\n### Scenario 17: DeepL answers "quota exceeded" mid-way → Claude Haiku takes over');
+deeplMode = 'quota456';
+calls.claude = 0;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.match(r.chosen.ai, /claude-haiku-5-5/);
+assert.ok(calls.claude >= 1);
+
+console.log('\n### Scenario 18: both translators fail → retried soon, not remembered for hours');
+deeplMode = 'down';
+claudeMode = 'down';
+await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), (e) => e.code === 'NO_SUBTITLES' && e.transient === true);
+claudeMode = 'ok';
+deeplMode = 'ok';
+
+console.log('\n### Scenario 19: a Chinese-original title is never machine-translated');
+country = 'China';
+calls.deeplTranslate = 0;
+calls.claude = 0;
+await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), { code: 'NO_SUBTITLES' });
+assert.equal(calls.deeplTranslate + calls.claude, 0);
+country = 'United States';
+
+console.log('\n### Scenario 20: an existing Chinese subtitle (even an AI one from a site) wins over translating');
+osChinese = true;
+withSubdl = true;
+subdlMode = 'ok';
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.notEqual(r.mode, 'translated');
 
 console.log('\npipeline mock: all assertions passed');

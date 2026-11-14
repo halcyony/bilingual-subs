@@ -13,6 +13,7 @@
   "description": "",
   "type": "module",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "7z-wasm": "^1.2.0",
     "adm-zip": "^0.6.1",
     "dotenv": "^18.0.9",

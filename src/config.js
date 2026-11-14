@@ -36,6 +36,14 @@ export const config = {
   // SubDL allows 50 downloads a day on its free plan. Chinese gets up to this
   // many per title; its English is only fetched when OpenSubtitles has none.
   maxSubdlDownloads: int(process.env.MAX_SUBDL_DOWNLOADS, 3),
+  // Machine translation for titles with no Chinese subtitle anywhere (not
+  // used for Chinese-original titles). DeepL first, Claude when DeepL's
+  // allowance is used up or it fails. Neither key set = no translation.
+  translate: {
+    deeplKey: process.env.DEEPL_API_KEY || '',
+    anthropicKey: process.env.ANTHROPIC_API_KEY || '',
+    claudeModel: process.env.TRANSLATE_MODEL || 'claude-haiku-5-5',
+  },
   alassPath: process.env.ALASS_PATH || BUNDLED_ALASS,
   // Set CACHE_DIR= (empty) to disable the download cache.
   cacheDir: process.env.CACHE_DIR ?? path.join(DATA_DIR, 'cache'),

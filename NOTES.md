@@ -81,6 +81,6 @@ Every Nuvio-facing bug this month was there (v0.7.0 added some jobs tests). Also
 
 **35. New sources with real APIs:** SubSource (free key), Wyzie (key already held), AnimeTosho (official subtitle tracks from anime releases; API details unverified). Needs a decision.
 
-**36. Chinese-original titles need a decision.** No Chinese file exists on any source with an API (verified for two shows). Options: an English-only entry, or AI translation with your own key, cached per title and marked as AI. The second is what MultiSub does and would allow cancelling it, but it reverses the rule that Chinese must be human-made for Chinese titles.
+**36. Chinese-original titles need a decision.** (Since then, English-original titles with no Chinese anywhere get DeepL / Claude Haiku translation; see README. Chinese-original titles are still open.) No Chinese file exists on any source with an API (verified for two shows). Options: an English-only entry, or AI translation with your own key, cached per title and marked as AI. The second is what MultiSub does and would allow cancelling it, but it reverses the rule that Chinese must be human-made for Chinese titles.
 
 Checked and fine during the review: startup import takes 67 ms, a corrupt 7z does not kill the process, and Nuvio history only uses `tt`, `mal` and `kitsu` IDs, all of which the add-on accepts.

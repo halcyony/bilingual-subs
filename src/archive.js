@@ -1,4 +1,5 @@
 import AdmZip from 'adm-zip';
+import iconv from 'iconv-lite';
 import { createExtractorFromData } from 'node-unrar-js';
 import SevenZip from '7z-wasm';
 
@@ -17,14 +18,28 @@ const isZip = (b) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b;
 const isRar = (b) => b.length > 7 && b.subarray(0, 4).toString('latin1') === 'Rar!';
 const is7z = (b) => b.length > 6 && b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc;
 
+// Chinese zips often store names in GBK without the UTF-8 flag, and adm-zip
+// reads every name as UTF-8, so "第06集.srt" comes out as garbage and no
+// longer matches the episode. A name that is not valid UTF-8 is read as GBK.
+function zipEntryName(entry) {
+  const raw = entry.rawEntryName;
+  if (!raw?.length) return entry.entryName;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(raw);
+  } catch {
+    return iconv.decode(raw, 'gbk');
+  }
+}
+
 // Returns [{ name, data }] of subtitle files. Plain subtitle buffers pass through.
 export async function extractArchive(name, buf) {
   if (isZip(buf)) {
     const zip = new AdmZip(buf);
     return zip
       .getEntries()
-      .filter((e) => !e.isDirectory && isSubtitleName(e.entryName))
-      .map((e) => ({ name: e.entryName, data: e.getData() }));
+      .map((e) => ({ e, name: zipEntryName(e) }))
+      .filter(({ e, name }) => !e.isDirectory && isSubtitleName(name))
+      .map(({ e, name }) => ({ name, data: e.getData() }));
   }
   if (isRar(buf)) {
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

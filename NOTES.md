@@ -10,6 +10,8 @@ Needs a decision before implementing: 26 (replace the SDK), 34 and 35 (new sourc
 
 ### C. Smaller edge cases
 
+Status: 16, 18 and 19 are done (uncommitted at the time of writing). 17 is held for Opus or Fable because it adds a threshold to language detection.
+
 **16. Anime ID mapping gaps** (src/anime.js:27, src/anime.js:93; verified counts)
 The `movie` flag is computed but never used. 1,178 of 8,004 mapped Kitsu entries have no season and default to season 1. Unknown how Nuvio sends anime movies.
 Fix: treat MOVIE entries as movies; log when the season is a guess. Risk: low.

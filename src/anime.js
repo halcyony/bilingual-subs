@@ -94,6 +94,8 @@ export async function resolveAnimeId(id, log = () => {}) {
   const [, source, sourceId, ep] = m;
   const entry = (await getMaps(log))[source].get(sourceId);
   if (!entry) return null;
-  if (ep === undefined) return { imdbId: entry.imdbId, season: null, episode: null };
+  // A film has no season or episode, even if the catalog sends "kitsu:1234:1".
+  if (ep === undefined || entry.movie) return { imdbId: entry.imdbId, season: null, episode: null };
+  if (entry.season == null) log(`[anime] ${id}: the list gives no season, assuming season 1`);
   return { imdbId: entry.imdbId, season: entry.season ?? 1, episode: Number(ep) + entry.offset };
 }

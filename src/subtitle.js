@@ -131,6 +131,8 @@ function fmt(ms) {
   return `${p(h)}:${p(m)}:${p(s)},${p(r, 3)}`;
 }
 
+// A cue shifted to before 0:00 would be written as a zero-length cue at 0:00;
+// cues that end at or before the start of the video are left out.
 export function toSrt(cues) {
-  return cues.map((c, i) => `${i + 1}\n${fmt(c.start)} --> ${fmt(c.end)}\n${c.text}\n`).join('\n');
+  return cues.filter((c) => Math.round(c.end) > 0).map((c, i) => `${i + 1}\n${fmt(c.start)} --> ${fmt(c.end)}\n${c.text}\n`).join('\n');
 }

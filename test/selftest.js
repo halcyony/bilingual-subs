@@ -14,6 +14,11 @@ import { extractArchive, looksLikeSubtitle } from '../src/archive.js';
 import { scoreCandidate } from '../src/score.js';
 import { parseVideoId, nameMatchesEpisode, pickEpisodeFiles, runningTotal } from '../src/episode.js';
 import { titleInNames } from '../src/providers/assrt.js';
+import { resolveAnimeId } from '../src/anime.js';
+import { config } from '../src/config.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -263,6 +268,58 @@ await test('assrt hits must carry the title', () => {
   assert.equal(titleInNames('The Dark Knight', ['Dark.Shadows.2012']), false);
   assert.equal(titleInNames('Harry Potter and the Sorcerer’s Stone', ['Harry.Potter.and.the.Philosophers.Stone.2001']), true);
   assert.equal(titleInNames('The Shawshank Redemption', ['不知道', 'The.Shawshank.Redemption.1994.2160p']), true);
+});
+
+await test('cues shifted to before 0:00 are dropped, not written as zero-length cues', () => {
+  const srt = toSrt([
+    { start: -3000, end: -1000, text: 'gone' },
+    { start: -500, end: 800, text: 'partly before the start' },
+    { start: 1000, end: 2000, text: 'normal' },
+  ]);
+  assert.ok(!srt.includes('gone'));
+  assert.ok(srt.startsWith('1\n00:00:00,000 --> 00:00:00,800\npartly before the start\n'), srt);
+  assert.equal(parse(srt, 'x.srt').length, 2);
+});
+
+await test('Chinese file names inside a zip are read as GBK', async () => {
+  // Build a zip with an ASCII placeholder name, then put the GBK bytes in its place
+  // (same length), the way Chinese zip tools store names without the UTF-8 flag.
+  const z = new AdmZip();
+  z.addFile('XXXXXX.srt', Buffer.from(toSrt(make(zhS))));
+  const buf = z.toBuffer();
+  const from = Buffer.from('XXXXXX.srt');
+  const to = iconv.encode('第06集.srt', 'gbk');
+  assert.equal(to.length, from.length);
+  for (let i = buf.indexOf(from); i !== -1; i = buf.indexOf(from, i + 1)) to.copy(buf, i);
+  const files = await extractArchive('pack.zip', buf);
+  assert.deepEqual(files.map((f) => f.name), ['第06集.srt']);
+  assert.equal(nameMatchesEpisode(files[0].name, 1, 6), true, 'the episode number is found in the repaired name');
+  // A UTF-8 name is left alone.
+  const z2 = new AdmZip();
+  z2.addFile('第06集.srt', Buffer.from(toSrt(make(zhS))));
+  assert.deepEqual((await extractArchive('pack.zip', z2.toBuffer())).map((f) => f.name), ['第06集.srt']);
+});
+
+await test('anime films have no season, and a guessed season is logged', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'bisubs-anime-'));
+  writeFileSync(
+    path.join(dir, 'anime-list-full.json'),
+    JSON.stringify([
+      { kitsu_id: 1, type: 'MOVIE', imdb_id: 'tt0000001' },
+      { kitsu_id: 2, type: 'TV', imdb_id: 'tt0000002', season: { tvdb: 2 }, episode_offset: { tvdb: 10 } },
+      { kitsu_id: 3, type: 'TV', imdb_id: 'tt0000003' },
+    ]),
+  );
+  config.cacheDir = dir;
+  const lines = [];
+  const log = (l) => lines.push(l);
+  assert.deepEqual(await resolveAnimeId('kitsu:1', log), { imdbId: 'tt0000001', season: null, episode: null });
+  assert.deepEqual(await resolveAnimeId('kitsu:1:1', log), { imdbId: 'tt0000001', season: null, episode: null }, 'a film sent with an episode number');
+  assert.deepEqual(await resolveAnimeId('kitsu:2:3', log), { imdbId: 'tt0000002', season: 2, episode: 13 });
+  assert.equal(lines.length, 0, 'no guess, nothing logged');
+  assert.deepEqual(await resolveAnimeId('kitsu:3:4', log), { imdbId: 'tt0000003', season: 1, episode: 4 });
+  assert.match(lines.join('\n'), /kitsu:3:4: the list gives no season, assuming season 1/);
+  assert.equal(await resolveAnimeId('kitsu:999:1', log), null);
 });
 
 console.log(`\n${passed} passed`);

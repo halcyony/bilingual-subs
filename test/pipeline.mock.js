@@ -79,8 +79,9 @@ let osEnglish = true;
 let country = 'United States';
 let osChinese = true;
 let deeplMode = 'ok'; // 'ok' | 'usedUp' | 'quota456' | 'down'
-let claudeMode = 'ok'; // 'ok' | 'down'
-const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [] };
+let claudeMode = 'ok'; // 'ok' | 'down' | 'busy' (429 while another request is running)
+let claudeInFlight = 0;
+const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0 };
 const toZh = (line) => zhS[en.indexOf(line)] ?? `译${line}`;
 
 const json = (o, init = {}) => new Response(JSON.stringify(o), { ...init, headers: { 'content-type': 'application/json' } });
@@ -171,6 +172,11 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.host === 'api.anthropic.com' && u.pathname === '/v1/messages') {
     calls.claude++;
     if (claudeMode === 'down') return json({ type: 'error', error: { type: 'invalid_request_error', message: 'credit balance too low' } }, { status: 400 });
+    claudeInFlight++;
+    calls.claudeMaxInFlight = Math.max(calls.claudeMaxInFlight, claudeInFlight);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      if (claudeMode === 'busy' && claudeInFlight > 1) return json({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } }, { status: 429, headers: { 'retry-after': '0' } });
     const body = JSON.parse(opts.body);
     calls.claudeModels.push(body.model);
     assert.equal(body.output_config.format.type, 'json_schema');
@@ -178,6 +184,9 @@ globalThis.fetch = async (url, opts = {}) => {
     const items = JSON.parse(prompt.slice(prompt.indexOf('Translate:\n') + 'Translate:\n'.length));
     const text = JSON.stringify({ lines: items.map((it) => ({ i: it.i, zh: toZh(it.en) })) });
     return json({ id: 'msg_test', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+    } finally {
+      claudeInFlight--;
+    }
   }
   throw new Error(`unexpected fetch ${url}`);
 };
@@ -368,6 +377,21 @@ calls.claude = 0;
 r = await run({ imdbId: 'tt0111161', release, log: quiet });
 assert.match(r.chosen.ai, /claude-haiku-5-5/);
 assert.ok(calls.claude >= 1);
+
+console.log('\n### Scenario 17b: translation chunks run in parallel, at most eight at once');
+deeplMode = 'usedUp';
+calls.claudeMaxInFlight = 0;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'translated');
+assert.ok(calls.claudeMaxInFlight >= 2 && calls.claudeMaxInFlight <= 8, `in flight: ${calls.claudeMaxInFlight}`);
+assert.ok(r.srt.includes('希望是一件好事。\nHope is a good thing.'));
+
+console.log('\n### Scenario 17c: told to slow down (429), the refused chunks are redone one at a time');
+claudeMode = 'busy';
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'translated');
+assert.ok(r.srt.includes('希望是一件好事。\nHope is a good thing.'), 'every line still translated');
+claudeMode = 'ok';
 
 console.log('\n### Scenario 18: both translators fail → retried soon, not remembered for hours');
 deeplMode = 'down';

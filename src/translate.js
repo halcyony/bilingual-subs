@@ -94,7 +94,7 @@ async function claudeChunk(lines, from, title) {
   const items = lines.slice(from, from + CHUNK).map((l, k) => ({ i: from + k, en: l }));
   const res = await anthropic().messages.create({
     model: config.translate.claudeModel,
-    max_tokens: 16000,
+    max_tokens: 8000,
     system: system(title),
     output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
     messages: [{ role: 'user', content: `${before.length ? `${before.join('\n')}\n\n` : ''}Translate:\n${JSON.stringify(items)}` }],
@@ -105,9 +105,34 @@ async function claudeChunk(lines, from, title) {
   return items.map((it) => (it.en ? got.get(it.i) ?? null : ''));
 }
 
+// Chunks translated at once. A 120-line chunk comes back as about 3,300 tokens
+// and each request reserves MAX_TOKENS against the output-token rate limit
+// (80K a minute on a new account), so 8 x 8,000 stays under it.
+const PARALLEL = 8;
+
 async function claude(lines, title) {
-  const out = [];
-  for (let from = 0; from < lines.length; from += CHUNK) out.push(...(await claudeChunk(lines, from, title)));
+  const starts = [];
+  for (let from = 0; from < lines.length; from += CHUNK) starts.push(from);
+  const parts = new Array(starts.length);
+  const rateLimited = [];
+  // Several chunks at a time: they only share the source lines, not each other's output.
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(PARALLEL, starts.length) }, async () => {
+      while (next < starts.length) {
+        const k = next++;
+        try {
+          parts[k] = await claudeChunk(lines, starts[k], title);
+        } catch (e) {
+          if (e.status !== 429) throw e;
+          rateLimited.push(k);
+        }
+      }
+    }),
+  );
+  // Told to slow down: the chunks that were refused go one at a time.
+  for (const k of rateLimited.sort((a, b) => a - b)) parts[k] = await claudeChunk(lines, starts[k], title);
+  const out = parts.flat();
   const missing = out.filter((l) => l === null).length;
   if (missing > lines.length * 0.05) throw new Error(`Claude left ${missing} of ${lines.length} lines untranslated`);
   return out.map((l) => l ?? '');

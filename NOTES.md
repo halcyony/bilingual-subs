@@ -28,7 +28,10 @@ Fix: drop cues that end at or before 0. Risk: none.
 
 ### D. Merge quality
 
-Status: 20 to 25 are untouched and held for Opus or Fable (20 changes every merged title and needs a before and after comparison on real titles; 25 changes a matching rule).
+Status: 20, 21, 22, 23 and 25 are done. 24 is optional and untouched.
+- Compared on 17 Chinese files of 5 titles (House S01E06, Friends S01E01, Breaking Bad S01E01, Shawshank, Inception), each merged with its English reference: English-only cues went from 1,957 to 620 and cues overlapping in time from 83 to 22. Most English-only cues left are untranslated interjections ("Oh.", "Mm."); the overlaps left are in the source files themselves.
+- Real results: House S01E06 lost its "[Woman's Voice]" style tags (666 to 644 cues); Friends S01E01 changed by one cue; Shawshank, Inception and Breaking Bad use bilingual files and did not change.
+- 22: hearing-impaired English files are not passed over as the reference, only cleaned when merging. Preferring a plain file moved Breaking Bad S01E01's timing by 0.33 s, and which one matches the video is unknown. Plain files have 0 to 0.3% tagged cues and hearing-impaired ones 9 to 18% (measured on 16 files), if this is wanted later. Files with only the foreign parts, or only CD 1, are now left out.
 
 **20. A Chinese line spanning two English cues only attaches to one** (src/merge.js:13-30; verified)
 The second English cue shows no Chinese. In the first real Shawshank merge, 177 of 1,822 cues were English-only.

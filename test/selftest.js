@@ -10,6 +10,7 @@ import { classify, scriptOf, machineTranslationMarker } from '../src/detect.js';
 import { releaseMatch } from '../src/release.js';
 import { align } from '../src/align.js';
 import { mergeBilingual } from '../src/merge.js';
+import { pickEnglishReference, alternateTiming } from '../src/pipeline.js';
 import { extractArchive, looksLikeSubtitle } from '../src/archive.js';
 import { scoreCandidate } from '../src/score.js';
 import { parseVideoId, nameMatchesEpisode, pickEpisodeFiles, runningTotal } from '../src/episode.js';
@@ -143,6 +144,56 @@ await test('merge puts Chinese on line 1, English on line 2', () => {
   const merged = mergeBilingual(make(zhS, 10), make(en, 10));
   assert.equal(merged.length, 10);
   assert.equal(merged[0].text, `${zhS[0]}\n${en[0]}`);
+});
+
+const cue = (start, end, text) => ({ start, end, text });
+
+await test('a Chinese line covering two English cues shows under both', () => {
+  const zh = [cue(0, 4000, '如果让你回家  回到美国的孩子身边')];
+  const enCues = [cue(0, 2000, 'How would you like to go home?'), cue(2100, 4000, 'To America. To your children.')];
+  assert.deepEqual(mergeBilingual(zh, enCues), [cue(0, 4000, '如果让你回家  回到美国的孩子身边\nHow would you like to go home? To America. To your children.')]);
+  // two speakers: the Chinese dashes are carried over to the English
+  const two = mergeBilingual([cue(0, 4000, '-这是你家吗  -对')], [cue(0, 1500, 'This is your house?'), cue(1600, 4000, "Mine and Mal's, yes.")]);
+  assert.equal(two[0].text, "-这是你家吗  -对\n- This is your house? - Mine and Mal's, yes.");
+  // not joined past two subtitle lines of English
+  const long = mergeBilingual(zh, [cue(0, 2000, 'x'.repeat(50)), cue(2100, 4000, 'y'.repeat(40))]);
+  assert.equal(long.length, 2);
+});
+
+await test('a Chinese cue matching no English cue does not overlap other cues', () => {
+  const enCues = [cue(0, 2000, 'Hello there.'), cue(5000, 7000, 'Goodbye.')];
+  const out = mergeBilingual([cue(0, 2000, '你好'), cue(1500, 4000, '你们要听话')], enCues);
+  assert.deepEqual(out.map((c) => [c.start, c.end, c.text]), [[0, 2000, '你好\nHello there.'], [2000, 4000, '你们要听话'], [5000, 7000, 'Goodbye.']]);
+  // too little free time left: it joins the cue it overlaps most
+  const squeezed = mergeBilingual([cue(1900, 2400, '等等')], [cue(0, 2000, 'Wait.'), cue(2300, 5000, 'What?')]);
+  assert.deepEqual(squeezed.map((c) => c.text), ['等等\nWait.', 'What?']);
+});
+
+await test('English lines inside a Chinese file are not repeated', () => {
+  const out = mergeBilingual([cue(0, 2000, '你好\nHello.'), cue(3000, 5000, '101.')], [cue(0, 2000, 'Hello.'), cue(3000, 5000, '101.')]);
+  assert.deepEqual(out.map((c) => c.text), ['你好\nHello.', '101.']);
+});
+
+await test('hearing-impaired extras are left out of the English line', () => {
+  const out = mergeBilingual(
+    [cue(3000, 5000, '嘿')],
+    [cue(0, 2000, '[DOOR SLAMS]'), cue(3000, 5000, 'SKYLER: Hey.'), cue(6000, 8000, '- [laughs]\n- Yes. (sighs)'), cue(9000, 10000, '- Mal!\n- Cobb!')],
+  );
+  assert.deepEqual(out.map((c) => c.text), ['嘿\nHey.', 'Yes.', '- Mal! - Cobb!']);
+});
+
+await test('the English reference is a whole file when there is one', () => {
+  const file = (id, flags = {}, downloads = 0) => ({ id, flags, release: { score: 0 }, downloads, cues: [cue(0, 900, 'Hi.')] });
+  const cd1 = file('cd1', { multiPart: true }, 900);
+  const foreign = file('foreign', { foreignPartsOnly: true }, 900);
+  assert.equal(pickEnglishReference([cd1, foreign, file('whole')]).id, 'whole');
+  assert.equal(pickEnglishReference([cd1]).id, 'cd1', 'used when nothing else exists');
+});
+
+await test('second-timing votes 1.0 s and 1.1 s apart count as one timing', () => {
+  const c = (ms) => ({ alignment: { medianShiftMs: -ms, timing: { kind: 'offset', fpsRatio: 1 } } });
+  assert.deepEqual(alternateTiming([c(1000), c(1100), c(3000)], 0), { shiftMs: 1100, support: 2 });
+  assert.equal(alternateTiming([c(100), c(14000 + 2000)], 0), null, 'too small or too large');
 });
 
 await test('zip extraction', async () => {

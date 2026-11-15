@@ -79,6 +79,9 @@ export async function search({ imdbId, season, episode, meta }, log) {
         flags: {
           aiTranslated: Boolean(a.ai_translated),
           machineTranslated: Boolean(a.machine_translated),
+          foreignPartsOnly: Boolean(a.foreign_parts_only),
+          // Films split over several CDs: only the first part is downloaded.
+          multiPart: (a.files?.length || 0) > 1,
         },
         text: [a.release, a.comments].filter(Boolean).join(' '),
         download: () => download(file.file_id, file.file_name),

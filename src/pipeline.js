@@ -215,7 +215,14 @@ async function downloadAndAnalyse(r, ctx) {
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
-function pickEnglishReference(english) {
+// The English file whose timing everything is aligned to. Files with only
+// the foreign-language parts, or only the first CD of a film, are left out
+// when there is anything else. Hearing-impaired files are not passed over:
+// their extras are removed when merging, and a different file would move the
+// timing (by 0.33 s for Breaking Bad S01E01).
+export function pickEnglishReference(all) {
+  const whole = all.filter((c) => !c.flags?.foreignPartsOnly && !c.flags?.multiPart);
+  const english = whole.length ? whole : all;
   if (!english.length) return null;
   const med = median(english.map((c) => c.cues.length));
   return [...english].sort(
@@ -506,17 +513,24 @@ export async function run({ imdbId, season = null, episode = null, release = nul
 // from the output, offer the output shifted to their timing as a second entry.
 const ALT_MIN_MS = 400;
 const ALT_MAX_MS = 15000;
-function alternateTiming(candidates, outOffsetMs) {
-  const votes = new Map();
+// Shifts this close together count as the same timing (1.0 s and 1.1 s are
+// one release group measured slightly differently).
+const ALT_SAME_MS = 200;
+export function alternateTiming(candidates, outOffsetMs) {
+  const shifts = [];
   for (const c of candidates) {
     const a = c.alignment;
     if (!a || a.timing.kind !== 'offset' || Math.abs(a.timing.fpsRatio - 1) > 0.001) continue;
-    const nativeMs = Math.round(-a.medianShiftMs / 100) * 100; // this file's own timing vs the reference
-    const shift = nativeMs - outOffsetMs;
+    const shift = -a.medianShiftMs - outOffsetMs; // this file's own timing vs the output
     if (Math.abs(shift) < ALT_MIN_MS || Math.abs(shift) > ALT_MAX_MS) continue;
-    votes.set(shift, (votes.get(shift) || 0) + 1);
+    shifts.push(shift);
   }
   let best = null;
-  for (const [shiftMs, support] of votes) if (!best || support > best.support) best = { shiftMs, support };
+  for (const s of shifts) {
+    const near = shifts.filter((x) => Math.abs(x - s) <= ALT_SAME_MS);
+    if (!best || near.length > best.support) {
+      best = { shiftMs: Math.round(median(near) / 100) * 100, support: near.length };
+    }
+  }
   return best;
 }

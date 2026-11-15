@@ -74,7 +74,7 @@ Fix: verify a SHA-256. Risk: none.
 
 ### F. Maintainability
 
-Status: 30 is done (version read from package.json). 31: the release.js "WEB-DL" part is done ("WEB-DL", "Blu-ray", "WEB-Rip" at the end are no longer a release group). The missing tests for jobs, add-on, server and anime code are still open.
+Status: 30 is done (version read from package.json). 31: the release.js "WEB-DL" part is done ("WEB-DL", "Blu-ray", "WEB-Rip" at the end are no longer a release group). Add-on answers now have tests (test/addon.js: entries, links, second timing, remembered failures, wrong id types; each was broken on purpose once to see a test fail). Jobs, the server routes and anime lookups are covered only by the older mock and robustness tests; a search still running when the answer is due is not tested.
 
 **30. Version lives in three places** (src/addon.js:15, src/config.js:14; verified)
 The User-Agent still says v0.3.0. Fix: read it from `package.json`.

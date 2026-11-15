@@ -3,7 +3,7 @@
   "version": "0.7.0",
   "main": "index.js",
   "scripts": {
-    "test": "node test/selftest.js && node test/pipeline.mock.js && node test/robustness.js",
+    "test": "node test/selftest.js && node test/pipeline.mock.js && node test/robustness.js && node test/addon.js",
     "fetch": "node bin/fetch-subs.js",
     "start": "node bin/server.js"
   },

@@ -97,6 +97,26 @@ await test('the wrong kind of id for the type, and unreadable ids, get nothing',
   assert.deepEqual((await ask('series', 'tt0412142:x:y')).subtitles, []);
 });
 
+await test('a search still running at answer time is listed anyway, with a second entry and a short cache time', async () => {
+  const { config } = await import('../src/config.js');
+  const realFetch = globalThis.fetch;
+  config.opensubtitles.apiKey = 'test';
+  // every request hangs, so the search cannot finish within ANSWER_WAIT_MS
+  globalThis.fetch = () => new Promise(() => {});
+  try {
+    const started = Date.now();
+    const res = await ask('movie', 'tt0000777');
+    assert.ok(Date.now() - started < 2000, `answered after ${Date.now() - started} ms`);
+    assert.equal(res.subtitles.length, 2, 'main entry and the alternative-timing entry');
+    assert.ok(res.subtitles[0].url.endsWith(`/${SUB_FILE_NAME}`));
+    assert.ok(res.subtitles[1].url.endsWith(`/${ALT_FILE_NAME}`));
+    assert.equal(res.cacheMaxAge, 60, 'asked again soon');
+  } finally {
+    globalThis.fetch = realFetch;
+    config.opensubtitles.apiKey = '';
+  }
+});
+
 await test('over HTTP: manifest, cache header, CORS and file names with "&" in them', async () => {
   const express = (await import('express')).default;
   const { addonRouter } = await import('../src/router.js');

@@ -7,7 +7,7 @@ import express from 'express';
 import { config } from '../src/config.js';
 import { buildAddon, requestContext, manifest } from '../src/addon.js';
 import { addonRouter } from '../src/router.js';
-import { ensure } from '../src/jobs.js';
+import { ensure, isTranslating, jobKey } from '../src/jobs.js';
 import { parseVideoId, videoLabel } from '../src/episode.js';
 import { findAlass } from '../src/align.js';
 import { preloadAnimeList } from '../src/anime.js';
@@ -65,6 +65,7 @@ routes.use((req, res, next) => {
 // subtitle link is slow, so this link never waits long.
 const placeholder = (zh, en) => `1\n00:00:00,000 --> 99:59:59,000\n${zh}\n${en}\n`;
 const PREPARING = placeholder('中英字幕准备中…请稍后重新选择', 'Bilingual subtitles are being prepared. Select them again in a few seconds.');
+const TRANSLATING = placeholder('无中文字幕，正在用AI翻译（会产生少量费用）…请稍后重新选择', 'No Chinese subtitle exists, so it is being translated with AI (a small cost). Select it again in a minute.');
 const NOT_FOUND = placeholder('未找到中文字幕', 'No Chinese subtitles were found for this title.');
 
 const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
@@ -89,7 +90,7 @@ const serveSub = async (req, res) => {
   if (result?.ok) return res.send(await readFile(wantsAlt && result.altFile ? result.altFile : result.file));
   res.set('Cache-Control', 'no-store');
   if (!result) log(`  placeholder for ${imdbId}: search still running`);
-  res.send(result ? NOT_FOUND : PREPARING);
+  res.send(result ? NOT_FOUND : isTranslating(jobKey(video, filename)) ? TRANSLATING : PREPARING);
 };
 routes.get('/sub/:videoId/:file/:name.srt', serveSub);
 routes.get('/sub/:videoId/:file.srt', serveSub);

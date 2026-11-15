@@ -69,9 +69,23 @@ function release() {
 }
 
 const labelOf = (video, filename) => `[${videoLabel(video)}${filename ? ` ${filename.slice(0, 40)}` : ''}]`;
-const runPipeline = (video, filename, log) => {
+// Keys of jobs that are machine-translating right now (it may cost money), so
+// the "being prepared" placeholder can say so.
+const translating = new Set();
+export const isTranslating = (key) => translating.has(key);
+const runPipeline = async (video, filename, log) => {
   const prefix = labelOf(video, filename);
-  return run({ ...video, release: filename || null, log: (l) => log(l.split('\n').map((x) => `${prefix} ${x}`).join('\n')) });
+  const key = jobKey(video, filename);
+  try {
+    return await run({
+      ...video,
+      release: filename || null,
+      log: (l) => log(l.split('\n').map((x) => `${prefix} ${x}`).join('\n')),
+      onTranslate: () => translating.add(key),
+    });
+  } finally {
+    translating.delete(key);
+  }
 };
 
 async function save(key, result) {

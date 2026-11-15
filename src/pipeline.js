@@ -270,13 +270,14 @@ function noSubtitles(trouble) {
 // (an AI Chinese file from a site is still discarded for them). The result is
 // rebuilt like a degraded one, so a human Chinese subtitle replaces it once
 // one is uploaded; the translation itself is cached.
-async function machineTranslated({ english, orig, meta, candidates, trouble, log }) {
+async function machineTranslated({ english, orig, meta, candidates, trouble, log, onTranslate }) {
   if (!translationConfigured()) return null;
   const reference = pickEnglishReference(english.filter((c) => c.byId));
   if (!reference) return null;
   log(`\n== No Chinese subtitle found: machine-translating the English (${reference.id})${orig === 'zh' ? ' although the title is Chinese-original' : ''}`);
   let t;
   try {
+    onTranslate?.();
     t = await translateCues(reference, { title: meta.title, log });
   } catch (e) {
     trouble.push(`translation: ${e.message}`);
@@ -315,7 +316,8 @@ function describeTiming(a) {
  * Run the whole pipeline. Returns { srt, chosen, mode, candidates } or throws.
  * `log` receives human-readable progress lines.
  */
-export async function run({ imdbId, season = null, episode = null, release = null, log = console.log, dump = null }) {
+// `onTranslate` is called when a machine translation starts (it may cost money).
+export async function run({ imdbId, season = null, episode = null, release = null, log = console.log, dump = null, onTranslate = null }) {
   if (!/^tt\d+$/.test(imdbId)) throw new Error(`not an IMDb id: ${imdbId}`);
   const video = { imdbId, season, episode };
   const trouble = [];
@@ -405,7 +407,7 @@ export async function run({ imdbId, season = null, episode = null, release = nul
     log(`  English was only found by name search (${english.length} file(s)): not used as the timing reference`);
     english = [];
   }
-  const lastResort = async () => (await machineTranslated({ english, orig, meta, candidates, trouble, log })) || Promise.reject(noSubtitles(trouble));
+  const lastResort = async () => (await machineTranslated({ english, orig, meta, candidates, trouble, log, onTranslate })) || Promise.reject(noSubtitles(trouble));
   if (!chinese.length) return lastResort();
 
   const reference = pickEnglishReference(english);

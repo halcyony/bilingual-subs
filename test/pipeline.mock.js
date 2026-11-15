@@ -87,6 +87,7 @@ let deeplMode = 'ok'; // 'ok' | 'usedUp' | 'quota456' | 'down'
 let claudeMode = 'ok'; // 'ok' | 'down' | 'busy' (429 while another request is running)
 let claudeInFlight = 0;
 let ssTraditional = false;
+let deeplGate = null;
 const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0, wyzieSearch: [], wyzieDownload: [], subsource: [] };
 const toZh = (line) => zhS[en.indexOf(line)] ?? `译${line}`;
 
@@ -169,6 +170,7 @@ globalThis.fetch = async (url, opts = {}) => {
     if (deeplMode === 'down') return new Response('unavailable', { status: 503 });
     if (u.pathname === '/v2/usage') return json({ character_count: deeplMode === 'usedUp' ? 499990 : 1000, character_limit: 500000 });
     calls.deeplTranslate++;
+    if (deeplGate) await deeplGate; // a scenario can hold the answer back
     if (deeplMode === 'quota456') return json({ message: 'Quota exceeded' }, { status: 456 });
     const body = JSON.parse(opts.body);
     assert.equal(body.target_lang, 'ZH-HANS');
@@ -382,7 +384,9 @@ await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), { code: 
 console.log('\n### Scenario 15: no Chinese subtitle anywhere → DeepL translates the English');
 config.translate.deeplKey = 'deepl-test:fx';
 config.translate.anthropicKey = 'claude-test';
-r = await run({ imdbId: 'tt0111161', release, log: quiet });
+let announced = 0;
+r = await run({ imdbId: 'tt0111161', release, log: quiet, onTranslate: () => announced++ });
+assert.equal(announced, 1, 'the caller is told when a translation starts');
 assert.equal(r.mode, 'translated');
 assert.match(r.chosen.ai, /DeepL/);
 assert.equal(r.chosen.provider, 'opensubtitles', 'translated from the English found by IMDb id');
@@ -390,6 +394,23 @@ assert.ok(r.srt.includes('这个地方真的很安静。\nThis place is really q
 assert.match(r.srt, /^1\n00:00:00,000 --> 00:00:02,500\n【机器翻译】\n/, 'says once that it is machine-translated');
 assert.equal(r.degraded, true, 'rebuilt early, so a human Chinese subtitle replaces it when one appears');
 assert.equal(calls.claude, 0, 'Claude is not used while DeepL works');
+
+console.log('\n### Scenario 15b: a job says it is translating while it translates, and not after');
+{
+  const { ensure: ensureJob, jobKey: keyOf, isTranslating } = await import('../src/jobs.js');
+  const video = { imdbId: 'tt0000015', season: null, episode: null };
+  assert.equal(isTranslating(keyOf(video, null)), false);
+  let release_ = () => {};
+  deeplGate = new Promise((res) => (release_ = res));
+  const job = ensureJob(video, null, quiet);
+  const before = calls.deeplTranslate;
+  while (calls.deeplTranslate === before) await new Promise((res) => setImmediate(res)); // DeepL is being asked
+  assert.equal(isTranslating(keyOf(video, null)), true, 'translating is reported while the job runs');
+  release_();
+  deeplGate = null;
+  assert.equal((await job).ok, true);
+  assert.equal(isTranslating(keyOf(video, null)), false, 'cleared when the job is done');
+}
 
 console.log('\n### Scenario 16: DeepL allowance used up → Claude Haiku translates instead');
 deeplMode = 'usedUp';

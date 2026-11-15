@@ -10,7 +10,7 @@ Needs a decision before implementing: 26 (replace the SDK), 34 and 35 (new sourc
 
 ### C. Smaller edge cases
 
-Status: 16, 18 and 19 are done (committed in 69c26d1 and deployed). 17 is held for Opus or Fable because it adds a threshold to language detection.
+Status: 16, 18 and 19 are done (committed in 69c26d1 and deployed). 17 is done: files with more than 5% kana are "other". In 1,094 cached files with Chinese characters the highest kana share was 0.04%, and none changed class. No real Japanese file was tried, only test sentences.
 
 **16. Anime ID mapping gaps** (src/anime.js:27, src/anime.js:93; verified counts)
 The `movie` flag is computed but never used. 1,178 of 8,004 mapped Kitsu entries have no season and default to season 1. Unknown how Nuvio sends anime movies.
@@ -74,7 +74,7 @@ Fix: verify a SHA-256. Risk: none.
 
 ### F. Maintainability
 
-Status: 30 is done (version read from package.json). 31 is open; the release.js "WEB-DL" part changes a matching rule, so it needs Opus or Fable.
+Status: 30 is done (version read from package.json). 31: the release.js "WEB-DL" part is done ("WEB-DL", "Blu-ray", "WEB-Rip" at the end are no longer a release group). The missing tests for jobs, add-on, server and anime code are still open.
 
 **30. Version lives in three places** (src/addon.js:15, src/config.js:14; verified)
 The User-Agent still says v0.3.0. Fix: read it from `package.json`.

@@ -15,6 +15,10 @@ const BILINGUAL_RATIO = 0.4;
 // Real Chinese text is ~50% made of the most common characters; text that is
 // really another language decoded as GBK/Big5 (e.g. mislabeled Arabic) is ~1%.
 const MIN_COMMON_SHARE = 0.15;
+// Japanese uses Chinese characters too, but about half its text is kana. In
+// 1,090 cached Chinese files kana was at most 0.04% (a stray "の").
+const KANA = /[぀-ヿ]/g;
+const MAX_KANA_SHARE = 0.05;
 
 function commonShare(cues) {
   let cjk = 0;
@@ -61,7 +65,11 @@ export function classify(cues) {
     if (l.zh && l.en) both++;
   }
   const n = cues.length || 1;
-  const stats = { zhCues: zh / n, enCues: en / n, bothCues: both / n, commonShare: commonShare(cues) };
+  const all = cues.map((c) => c.text).join('\n');
+  const kana = (all.match(KANA) || []).length;
+  const han = (all.match(CJK) || []).length;
+  const stats = { zhCues: zh / n, enCues: en / n, bothCues: both / n, commonShare: commonShare(cues), kanaShare: kana / (kana + han || 1) };
+  if (stats.kanaShare > MAX_KANA_SHARE) return { lang: 'other', garbled: false, ...stats };
   const realChinese = stats.commonShare >= MIN_COMMON_SHARE;
   let lang = 'other';
   if (realChinese && stats.bothCues >= BILINGUAL_RATIO) lang = 'bilingual';

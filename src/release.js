@@ -26,7 +26,10 @@ export function features(name) {
   const s = norm(name);
   const source = SOURCES.find(([, re]) => re.test(s))?.[0] || null;
   const resolution = s.match(/\b(2160p|1080p|720p|576p|480p|4k)\b/)?.[1] || null;
-  const group = String(name || '').replace(/\.(mkv|mp4|avi|srt|ass)$/i, '').match(/-([A-Za-z0-9]+)(?:\s*\[.*\])?$/)?.[1]?.toLowerCase() || null;
+  const g = String(name || '').replace(/\.(mkv|mp4|avi|srt|ass)$/i, '').match(/([A-Za-z0-9]*)-([A-Za-z0-9]+)(?:\s*\[.*\])?$/);
+  // "WEB-DL", "Blu-ray" or "WEB-Rip" at the end is the source, not a group.
+  const pair = g && `${g[1]}-${g[2]}`.toLowerCase();
+  const group = g && !SOURCES.some(([, re]) => pair.match(re)?.[0] === pair) ? g[2].toLowerCase() : null;
   const editions = [...s.matchAll(EDITIONS)].map((m) => m[1].replace(/[ .]/g, ''));
   const tokens = new Set(s.split(/[\s.\-+]+/).filter((t) => t.length > 1 && !NOISE.has(t) && !/^(19|20)\d{2}$/.test(t)));
   return { source, resolution, group, editions, tokens };

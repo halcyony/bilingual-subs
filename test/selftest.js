@@ -7,7 +7,7 @@ import SevenZip from '7z-wasm';
 import { decode } from '../src/encoding.js';
 import { parse, toSrt } from '../src/subtitle.js';
 import { classify, scriptOf, machineTranslationMarker } from '../src/detect.js';
-import { releaseMatch } from '../src/release.js';
+import { releaseMatch, features } from '../src/release.js';
 import { align } from '../src/align.js';
 import { mergeBilingual } from '../src/merge.js';
 import { pickEnglishReference, alternateTiming } from '../src/pipeline.js';
@@ -131,6 +131,24 @@ await test('release matching', () => {
   const web = releaseMatch(v, ['The Shawshank Redemption (1994) [NF][WEBDL-1080p]-OzONE']);
   assert.ok(same.score > 0.7, JSON.stringify(same));
   assert.ok(web.score < 0.3, JSON.stringify(web));
+});
+
+await test('a release ending in WEB-DL or Blu-ray has no release group', () => {
+  assert.equal(features('Some.Show.S01E01.1080p.WEB-DL').group, null);
+  assert.equal(features('Movie.2010.1080p.Blu-ray').group, null);
+  assert.equal(features('Movie.2010.720p.WEB-Rip.mkv').group, null);
+  assert.equal(features('Movie.2010.1080p.WEB-NTb').group, 'ntb');
+  assert.equal(features('Movie.2010.1080p.BluRay.x264-SPARKS').group, 'sparks');
+  const m = releaseMatch('Some.Show.S01E01.1080p.AMZN.WEB-DL', ['Other.Release.S01E01.720p.NF.WEB-DL']);
+  assert.ok(!m.why.some((w) => w.startsWith('group=')), JSON.stringify(m));
+});
+
+await test('Japanese is not taken for Chinese', () => {
+  const ja = ['お前は何をしているんだ？', '今日は本当に寒いですね。', '彼はもう帰ってこないと思う。', '希望は良いものだよ。', '私たちは長い間ここにいた。'];
+  assert.equal(classify(make(ja)).lang, 'other');
+  assert.equal(classify(make(ja.map((j, i) => `${j}\n${en[i]}`))).lang, 'other');
+  // a stray "の" in a Chinese file changes nothing
+  assert.equal(classify(make([...zhS.slice(1), '东京の夜'])).lang, 'zh');
 });
 
 await test('alignment recovers a 3.2s offset', async () => {

@@ -60,4 +60,22 @@ async function request(url, opts = {}, read) {
 
 export const getJson = (url, opts) => request(url, opts, (res) => res.json());
 
-export const getBuffer = (url, opts) => request(url, opts, async (res) => Buffer.from(await res.arrayBuffer()));
+// Reads a body up to `max` bytes, then gives up. A refusal is an HttpError
+// (413), so it is not retried: a second try would download the same thing.
+async function readLimited(res, url, max) {
+  const tooBig = () => new HttpError(413, url, `larger than ${max} bytes`);
+  if (Number(res.headers.get('content-length')) > max) throw tooBig();
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body ?? []) {
+    size += chunk.length;
+    if (size > max) throw tooBig();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+export const getBuffer = (url, opts = {}) => {
+  const { maxBytes = config.maxDownloadBytes, ...rest } = opts;
+  return request(url, rest, (res) => readLimited(res, url, maxBytes));
+};

@@ -136,6 +136,42 @@ await test('housekeeping removes old downloads, old results and rotates the log'
   assert.equal(existsSync(logFile), false);
 });
 
+await test('downloads over the size limit are refused, once', async () => {
+  const big = Buffer.alloc(2000, 1);
+  // announced size too big: refused before reading the body
+  hits.length = 0;
+  handler = (req, res) => res.end(big);
+  await assert.rejects(getBuffer(`${base}/big`, { maxBytes: 1000 }), /HTTP 413.*larger than 1000 bytes/);
+  assert.equal(hits.length, 1, 'a refusal is not retried');
+  // no announced size (chunked): refused while reading
+  hits.length = 0;
+  handler = (req, res) => {
+    res.writeHead(200);
+    res.write(big.subarray(0, 800));
+    setTimeout(() => res.end(big.subarray(800)), 20);
+  };
+  await assert.rejects(getBuffer(`${base}/chunked`, { maxBytes: 1000 }), /HTTP 413/);
+  assert.equal(hits.length, 1);
+  // under the limit is untouched
+  handler = (req, res) => res.end(big);
+  assert.equal((await getBuffer(`${base}/ok`, { maxBytes: 5000 })).length, 2000);
+  assert.equal((await getBuffer(`${base}/default`)).length, 2000, 'the default limit is far above a subtitle');
+});
+
+await test('a subtitle file that is too large is not taken out of an archive', async () => {
+  const { default: AdmZip } = await import('adm-zip');
+  const { extractArchive } = await import('../src/archive.js');
+  const { config } = await import('../src/config.js');
+  const z = new AdmZip();
+  z.addFile('small.srt', Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHi\n'));
+  z.addFile('huge.srt', Buffer.alloc(6 * 1024 * 1024, 0x61)); // compresses to a few KB
+  const zipped = z.toBuffer();
+  assert.ok(zipped.length < 100000, 'the archive itself is small');
+  assert.equal(config.maxSubtitleBytes, 5 * 1024 * 1024);
+  assert.deepEqual((await extractArchive('pack.zip', zipped)).map((f) => f.name), ['small.srt']);
+  assert.deepEqual(await extractArchive('plain.srt', Buffer.alloc(6 * 1024 * 1024, 0x61)), [], 'a plain file over the limit too');
+});
+
 srv.closeAllConnections?.();
 srv.close();
 

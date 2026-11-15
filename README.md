@@ -32,6 +32,8 @@ cp .env.example .env    # then fill in keys
 | `CACHE_MAX_AGE_DAYS` | cached downloads older than this are deleted (default 30) |
 | `RESULTS_MAX_AGE_DAYS` | saved subtitles nobody has played for this long are deleted (default 60) |
 | `LOG_MAX_BYTES` | `logs/addon.log` is rotated to `addon.log.1` at this size (default 5 MB) |
+| `MAX_DOWNLOAD_BYTES` | downloads larger than this are refused (default 30 MB) |
+| `MAX_SUBTITLE_BYTES` | files larger than this inside an archive are skipped (default 5 MB) |
 | `DEEPL_API_KEY` | optional: machine-translate the English when no Chinese subtitle exists (DeepL's free Developer plan: 1,000,000 characters once, not renewed) |
 | `ANTHROPIC_API_KEY` | optional: translate with Claude when DeepL's allowance is used up or it fails (or alone, without DeepL) |
 | `TRANSLATE_MODEL` | Claude model for translation (default `claude-haiku-5-5`) |

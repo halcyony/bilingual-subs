@@ -1,5 +1,6 @@
 import AdmZip from 'adm-zip';
 import iconv from 'iconv-lite';
+import { config } from './config.js';
 import { createExtractorFromData } from 'node-unrar-js';
 import SevenZip from '7z-wasm';
 
@@ -17,6 +18,10 @@ export function looksLikeSubtitle(buf) {
 const isZip = (b) => b.length > 4 && b[0] === 0x50 && b[1] === 0x4b;
 const isRar = (b) => b.length > 7 && b.subarray(0, 4).toString('latin1') === 'Rar!';
 const is7z = (b) => b.length > 6 && b[0] === 0x37 && b[1] === 0x7a && b[2] === 0xbc;
+
+// Real subtitle files are well under a megabyte; one that is much larger is
+// not a subtitle, or is an archive made to unpack to something huge.
+const fits = (bytes) => !(bytes > config.maxSubtitleBytes);
 
 // Chinese zips often store names in GBK without the UTF-8 flag, and adm-zip
 // reads every name as UTF-8, so "第06集.srt" comes out as garbage and no
@@ -38,17 +43,18 @@ export async function extractArchive(name, buf) {
     return zip
       .getEntries()
       .map((e) => ({ e, name: zipEntryName(e) }))
-      .filter(({ e, name }) => !e.isDirectory && isSubtitleName(name))
-      .map(({ e, name }) => ({ name, data: e.getData() }));
+      .filter(({ e, name }) => !e.isDirectory && isSubtitleName(name) && fits(e.header.size))
+      .map(({ e, name }) => ({ name, data: e.getData() }))
+      .filter((f) => fits(f.data.length));
   }
   if (isRar(buf)) {
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     const extractor = await createExtractorFromData({ data: ab });
-    const { files } = extractor.extract({ files: (h) => !h.flags.directory && isSubtitleName(h.name) });
+    const { files } = extractor.extract({ files: (h) => !h.flags.directory && isSubtitleName(h.name) && fits(h.unpSize) });
     return [...files].map((f) => ({ name: f.fileHeader.name, data: Buffer.from(f.extraction) }));
   }
   if (is7z(buf)) return extract7z(buf);
-  return [{ name, data: buf }];
+  return fits(buf.length) ? [{ name, data: buf }] : [];
 }
 
 // 7-Zip compiled to WASM: runs inside Node, nothing installed on the system.
@@ -71,7 +77,7 @@ async function extract7z(buf) {
       const p = `${dir}/${n}`;
       const r = rel ? `${rel}/${n}` : n;
       if (sz.FS.isDir(sz.FS.stat(p).mode)) walk(p, r);
-      else if (isSubtitleName(n)) out.push({ name: r, data: Buffer.from(sz.FS.readFile(p)) });
+      else if (isSubtitleName(n) && fits(sz.FS.stat(p).size)) out.push({ name: r, data: Buffer.from(sz.FS.readFile(p)) });
     }
   };
   walk('/work/out', '');

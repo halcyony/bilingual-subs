@@ -10,6 +10,7 @@ RUN set -eux; \
     if [ "$TARGETARCH" = "amd64" ]; then \
       apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*; \
       curl -fsSL -o /out/alass-cli https://github.com/kaegi/alass/releases/download/v2.0.0/alass-linux64; \
+      echo "7bd0b9ae7e035d3ba940eacffb21243614df36231d47f21f0b4ce42001ab7fcd  /out/alass-cli" | sha256sum -c -; \
       chmod +x /out/alass-cli; \
     else \
       # Pinned to the crate's own 2019 lockfile. If the compile ever fails,

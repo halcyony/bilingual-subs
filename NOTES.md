@@ -10,7 +10,7 @@ Needs a decision before implementing: 26 (replace the SDK), 34 and 35 (new sourc
 
 ### C. Smaller edge cases
 
-Status: 16, 18 and 19 are done (uncommitted at the time of writing). 17 is held for Opus or Fable because it adds a threshold to language detection.
+Status: 16, 18 and 19 are done (committed in 69c26d1 and deployed). 17 is held for Opus or Fable because it adds a threshold to language detection.
 
 **16. Anime ID mapping gaps** (src/anime.js:27, src/anime.js:93; verified counts)
 The `movie` flag is computed but never used. 1,178 of 8,004 mapped Kitsu entries have no season and default to season 1. Unknown how Nuvio sends anime movies.
@@ -27,6 +27,8 @@ Fix: decode the raw name as GBK when it is not valid UTF-8. Risk: low.
 Fix: drop cues that end at or before 0. Risk: none.
 
 ### D. Merge quality
+
+Status: 20 to 25 are untouched and held for Opus or Fable (20 changes every merged title and needs a before and after comparison on real titles; 25 changes a matching rule).
 
 **20. A Chinese line spanning two English cues only attaches to one** (src/merge.js:13-30; verified)
 The second English cue shows no Chinese. In the first real Shawshank merge, 177 of 1,822 cues were English-only.
@@ -52,6 +54,8 @@ Fix: group within 200 ms. Risk: none.
 
 ### E. Security and robustness
 
+Status: 27 is done (size limits; the assrt http links are still plain http). 28 is done (SHA-256 check of the amd64 alass download in the Dockerfile; the ARM build compiles from crates.io and is not covered). 26 needs a decision. 29 untouched.
+
 **26. `npm audit`: 4 high, 2 low, all through `stremio-addon-sdk`** (verified)
 ReDoS in its router's `path-to-regexp`; the rest are in its CLI parts. Only token holders can reach it. npm's suggested fix is a major downgrade.
 Fix: replace the SDK with about 40 lines of our own routes. Risk: medium. Needs a decision.
@@ -66,6 +70,8 @@ Fix: verify a SHA-256. Risk: none.
 `X-Forwarded-Host` is trusted when `PUBLIC_URL` is unset (it is set on the VPS). The OpenSubtitles login token is never refreshed (login is not used).
 
 ### F. Maintainability
+
+Status: 30 is done (version read from package.json). 31 is open; the release.js "WEB-DL" part changes a matching rule, so it needs Opus or Fable.
 
 **30. Version lives in three places** (src/addon.js:15, src/config.js:14; verified)
 The User-Agent still says v0.3.0. Fix: read it from `package.json`.

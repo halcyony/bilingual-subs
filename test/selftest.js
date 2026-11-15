@@ -322,4 +322,13 @@ await test('anime films have no season, and a guessed season is logged', async (
   assert.equal(await resolveAnimeId('kitsu:999:1', log), null);
 });
 
+await test('the version comes from package.json only', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { VERSION } = await import('../src/config.js');
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(VERSION, pkg.version);
+  assert.equal(config.userAgent, `stremio-bilingual-subs v${pkg.version}`);
+  assert.ok(!readFileSync(new URL('../src/addon.js', import.meta.url), 'utf8').match(/pkgVersion = '\d/), 'no hard-coded version in addon.js');
+});
+
 console.log(`\n${passed} passed`);

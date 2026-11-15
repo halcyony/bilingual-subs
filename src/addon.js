@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import sdk from 'stremio-addon-sdk';
-import { config } from './config.js';
+import { config, VERSION } from './config.js';
 import { ensure, status, jobKey, refreshIfStale } from './jobs.js';
 import { parseVideoId, isEpisode, videoKey, videoLabel } from './episode.js';
 import { isAnimeId, resolveAnimeId } from './anime.js';
@@ -12,7 +12,7 @@ const { addonBuilder } = sdk;
 // (localhost, LAN IP or tunnel — whatever the client used).
 export const requestContext = new AsyncLocalStorage();
 
-const pkgVersion = '0.7.0';
+const pkgVersion = VERSION;
 
 export const manifest = {
   id: 'community.bilingual-subs.zh-en',

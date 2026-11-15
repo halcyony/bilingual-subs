@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// The version lives in package.json only.
+export const VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 const BUNDLED_ALASS = path.join(ROOT, 'tools', 'alass', process.platform === 'win32' ? 'alass-cli.exe' : 'alass-cli');
 
 // Where cache/, results/ and logs/ live (a mounted volume in Docker).
@@ -11,7 +14,12 @@ const DATA_DIR = process.env.DATA_DIR || ROOT;
 const int = (v, d) => (v === undefined || v === '' ? d : Number.parseInt(v, 10));
 
 export const config = {
-  userAgent: process.env.USER_AGENT || 'stremio-bilingual-subs v0.3.0',
+  userAgent: process.env.USER_AGENT || `stremio-bilingual-subs v${VERSION}`,
+  // A download (a subtitle or an archive of them) larger than this is refused,
+  // and so is any single subtitle file taken out of an archive that is larger
+  // than the second limit (a small archive can unpack to something huge).
+  maxDownloadBytes: int(process.env.MAX_DOWNLOAD_BYTES, 30 * 1024 * 1024),
+  maxSubtitleBytes: int(process.env.MAX_SUBTITLE_BYTES, 5 * 1024 * 1024),
   opensubtitles: {
     apiKey: process.env.OPENSUBTITLES_API_KEY || '',
     username: process.env.OPENSUBTITLES_USERNAME || '',

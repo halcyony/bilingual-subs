@@ -2,6 +2,9 @@ import * as OpenCC from 'opencc-js';
 import { COMMON } from './encoding.js';
 
 const t2s = OpenCC.Converter({ from: 't', to: 'cn' });
+// Character by character: phrases that differ between regions (軟體/软件)
+// are not changed.
+export const toSimplified = (text) => t2s(text);
 
 const CJK = /[㐀-䶿一-鿿豈-﫿]/g;
 const LATIN_WORD = /[A-Za-z]{2,}/g;

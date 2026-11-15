@@ -20,6 +20,8 @@ process.env.ANTHROPIC_API_KEY = '';
 // Wyzie is off unless a scenario turns it on.
 process.env.WYZIE_API_KEY = '';
 process.env.WYZIE_BASE_URL = 'https://wyzie.mock';
+process.env.SUBSOURCE_API_KEY = '';
+process.env.SUBSOURCE_BASE_URL = 'https://subsource.mock/api/v1';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -84,7 +86,8 @@ let osChinese = true;
 let deeplMode = 'ok'; // 'ok' | 'usedUp' | 'quota456' | 'down'
 let claudeMode = 'ok'; // 'ok' | 'down' | 'busy' (429 while another request is running)
 let claudeInFlight = 0;
-const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0, wyzieSearch: [], wyzieDownload: [] };
+let ssTraditional = false;
+const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0, wyzieSearch: [], wyzieDownload: [], subsource: [] };
 const toZh = (line) => zhS[en.indexOf(line)] ?? `译${line}`;
 
 const json = (o, init = {}) => new Response(JSON.stringify(o), { ...init, headers: { 'content-type': 'application/json' } });
@@ -203,6 +206,18 @@ globalThis.fetch = async (url, opts = {}) => {
     calls.wyzieDownload.push(u.pathname);
     const advert = "1\n00:00:00,000 --> 00:00:06,000\nYou're on the free plan. Unlock every source, AI translation & ad-free subs → sub.wyzie.io\n\n";
     return new Response(advert + toSrt(make(zhS, 300, 1200)));
+  }
+  if (u.host === 'subsource.mock') {
+    calls.subsource.push(`${opts.headers?.['X-API-Key']} ${u.pathname}${u.searchParams.get('language') ? ` ${u.searchParams.get('language')}` : ''}`);
+    if (u.pathname.endsWith('/movies/search')) return json({ success: true, data: [{ movieId: 5, imdbId: u.searchParams.get('imdb'), season: null, type: 'movie' }, { movieId: 6, imdbId: 'tt9999999', season: null }] });
+    if (u.pathname.endsWith('/subtitles') && u.searchParams.get('language') === 'chinese_bg_code') {
+      return json({ success: true, data: [{ subtitleId: 77, movieId: 5, language: 'chinese_bg_code', releaseInfo: ['Shawshank.1994.BluRay.chs'], downloads: 5, productionType: 'translated' }] });
+    }
+    if (u.pathname.endsWith('/subtitles')) return json({ success: true, data: [] });
+    if (u.pathname.endsWith('/subtitles/77/download')) {
+      const lines = ssTraditional ? zhT : zhS;
+      return new Response(zipOf([['Shawshank.1994.BluRay.chs.srt', Buffer.from(toSrt(make(lines, 300, 1800)))]]));
+    }
   }
   throw new Error(`unexpected fetch ${url}`);
 };
@@ -449,6 +464,33 @@ assert.equal(calls.claude + calls.deeplTranslate, 0, 'a human file wins over tra
 assert.deepEqual(calls.wyzieSearch.sort(), ['en/charlie', 'zh/charlie']);
 assert.deepEqual(calls.wyzieDownload, ['/c/1/id/1958483388'], 'the AI entry is never downloaded');
 config.wyzie.apiKey = '';
+
+console.log('\n### Scenario 22: SubSource finds the only Chinese file (by IMDb id, then per language)');
+config.subsource.apiKey = 'ss-test';
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'merged');
+assert.equal(r.chosen.id, 'subsource:77');
+assert.deepEqual(calls.subsource.sort(), [
+  'ss-test /api/v1/movies/search',
+  'ss-test /api/v1/subtitles big_5_code',
+  'ss-test /api/v1/subtitles chinese_bg_code',
+  'ss-test /api/v1/subtitles english',
+  'ss-test /api/v1/subtitles/77/download',
+]);
+assert.ok(r.srt.includes('你好，我们走吧。\nHello, let us go.'));
+
+console.log('\n### Scenario 23: the only Chinese file is Traditional → shown in Simplified, unless turned off');
+ssTraditional = true;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.chosen.script, 'traditional');
+assert.ok(r.srt.includes('他说他会回来的。\nHe said he would come back.'), 'converted');
+assert.ok(!r.srt.includes('們'));
+config.toSimplified = false;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.ok(r.srt.includes('他說他會回來的。'), 'kept as it is');
+config.toSimplified = true;
+ssTraditional = false;
+config.subsource.apiKey = '';
 osChinese = true;
 withSubdl = true;
 assrtMode = 'ok';

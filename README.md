@@ -25,6 +25,8 @@ cp .env.example .env    # then fill in keys
 | `SUBDL_API_KEY` | SubDL |
 | `ASSRT_TOKEN` | assrt.net |
 | `WYZIE_API_KEY` | sub.wyzie.io (optional; free plan: 1,000 requests a day) |
+| `SUBSOURCE_API_KEY` | api.subsource.net (optional) |
+| `TO_SIMPLIFIED` | `false` keeps a Traditional Chinese result as it is (default: converted to Simplified) |
 | `MAX_DOWNLOADS_PER_PROVIDER` | SubDL/assrt downloads per language bucket (default 4) |
 | `MAX_OPENSUBTITLES_DOWNLOADS` | OpenSubtitles downloads per language bucket (default 1) |
 | `MAX_SUBDL_DOWNLOADS` | SubDL Chinese downloads per title (default 3). SubDL's free plan allows 50 a day, so its English is only fetched when OpenSubtitles has none |
@@ -184,7 +186,7 @@ node bin/fetch-subs.js tt0412142:1:6          # House, season 1 episode 6
 ## How it works
 
 1. **Search** OpenSubtitles (`en`, `zh-cn`, `zh-tw`, `zh-ca`, `ze`), SubDL (`EN`, `ZH`, `ZH_BG`),
-   assrt and Wyzie (when `WYZIE_API_KEY` is set) in parallel. assrt can't
+   assrt, Wyzie and SubSource (each when its key is set) in parallel. SubSource is searched by IMDb id, then per language (`chinese_bg_code`, `big_5_code`, `english`). assrt can't
    search by IMDb ID, so it searches by the title from Stremio's Cinemeta. Hits
    whose name has a different year are dropped. Wyzie's free plan serves the
    OpenSubtitles.org catalogue without using OpenSubtitles download quota; its
@@ -285,7 +287,7 @@ src/addon.js             manifest + subtitles handler
 src/router.js            the add-on protocol over HTTP (manifest, /subtitles/...json)
 src/jobs.js              background searches, saved results
 src/pipeline.js          orchestration, AI policy, logging
-src/providers/*.js       opensubtitles, subdl, assrt, wyzie
+src/providers/*.js       opensubtitles, subdl, assrt, wyzie, subsource
 src/archive.js           zip / rar / 7z extraction
 src/cache.js             download cache
 src/encoding.js          charset detection → UTF-8

@@ -35,6 +35,12 @@ export const config = {
     token: process.env.ASSRT_TOKEN || '',
     baseUrl: 'https://api.assrt.net/v1',
   },
+  // Limits seen in its replies: 60 requests a minute, 7,200 a day (a search
+  // is 4, each download 1).
+  subsource: {
+    apiKey: process.env.SUBSOURCE_API_KEY || '',
+    baseUrl: process.env.SUBSOURCE_BASE_URL || 'https://api.subsource.net/api/v1',
+  },
   // Free plan: 1,000 requests a day (a search is 2, each download 1).
   wyzie: {
     apiKey: process.env.WYZIE_API_KEY || '',
@@ -52,6 +58,8 @@ export const config = {
   // Machine translation for titles with no Chinese subtitle anywhere (not
   // used for Chinese-original titles). DeepL first, Claude when DeepL's
   // allowance is used up or it fails. Neither key set = no translation.
+  // A Traditional Chinese result is converted to Simplified unless "false".
+  toSimplified: process.env.TO_SIMPLIFIED !== 'false',
   translate: {
     deeplKey: process.env.DEEPL_API_KEY || '',
     anthropicKey: process.env.ANTHROPIC_API_KEY || '',

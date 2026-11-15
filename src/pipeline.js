@@ -5,10 +5,11 @@ import * as opensubtitles from './providers/opensubtitles.js';
 import * as subdl from './providers/subdl.js';
 import * as assrt from './providers/assrt.js';
 import * as wyzie from './providers/wyzie.js';
+import * as subsource from './providers/subsource.js';
 import { cached } from './cache.js';
 import { decode } from './encoding.js';
 import { parse, toSrt } from './subtitle.js';
-import { classify, scriptOf, machineTranslationMarker, splitLangs } from './detect.js';
+import { classify, scriptOf, machineTranslationMarker, splitLangs, toSimplified } from './detect.js';
 import { releaseMatch } from './release.js';
 import { align, findAlass } from './align.js';
 import { scoreCandidate } from './score.js';
@@ -17,7 +18,7 @@ import { isEpisode, pickEpisodeFiles, runningTotal, videoLabel } from './episode
 import { looksLikeSubtitle } from './archive.js';
 import { translateCues, translationConfigured } from './translate.js';
 
-const PROVIDERS = { opensubtitles, subdl, assrt, wyzie };
+const PROVIDERS = { opensubtitles, subdl, assrt, wyzie, subsource };
 const MIN_CUES = 20;
 const ALIGN_TOP = 4;
 const CHINESE_COUNTRIES = /^(china|hong kong|taiwan|macao|macau)$/i;
@@ -158,12 +159,12 @@ function selectForDownload(results) {
     // English is plentiful elsewhere; spend OpenSubtitles quota mostly on Chinese.
     if (provider === 'opensubtitles') cap = english ? Math.min(2, config.maxOpenSubtitlesDownloads) : config.maxOpenSubtitlesDownloads;
     if (provider === 'subdl') cap = english ? Math.min(2, config.maxSubdlDownloads) : config.maxSubdlDownloads;
-    if (provider === 'wyzie' && english) cap = Math.min(2, cap);
+    if ((provider === 'wyzie' || provider === 'subsource') && english) cap = Math.min(2, cap);
     const chosen = list.slice(0, cap);
-    // SubDL's daily quota is small, and Wyzie's English is mostly the same
-    // files as OpenSubtitles', so their English is only a fallback for titles
-    // where OpenSubtitles has none.
-    if ((provider === 'subdl' || provider === 'wyzie') && english && osHasEnglish) deferred.push(...chosen);
+    // SubDL's daily quota is small, and English from Wyzie (the same files as
+    // OpenSubtitles') and SubSource adds little, so their English is only a
+    // fallback for titles where OpenSubtitles has none.
+    if (['subdl', 'wyzie', 'subsource'].includes(provider) && english && osHasEnglish) deferred.push(...chosen);
     else picked.push(...chosen);
   }
   return { picked, deferred };
@@ -495,6 +496,12 @@ export async function run({ imdbId, season = null, episode = null, release = nul
   } else {
     mode = 'chinese-only';
     out = best.cues;
+  }
+  // Simplified files already score higher; when the best one is Traditional
+  // anyway, show it in Simplified (TO_SIMPLIFIED=false keeps it as it is).
+  if (best.script === 'traditional' && config.toSimplified) {
+    out = out.map((c) => ({ ...c, text: toSimplified(c.text) }));
+    log('\n  converted from Traditional to Simplified Chinese');
   }
   log(`\n== Result: ${mode} from ${best.id}${mode === 'merged' && reference ? ` + ${reference.id}` : ''} (${out.length} cues)${best.ai ? ' — contains AI/MT translation' : ''}`);
 

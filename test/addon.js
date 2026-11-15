@@ -97,5 +97,33 @@ await test('the wrong kind of id for the type, and unreadable ids, get nothing',
   assert.deepEqual((await ask('series', 'tt0412142:x:y')).subtitles, []);
 });
 
+await test('over HTTP: manifest, cache header, CORS and file names with "&" in them', async () => {
+  const express = (await import('express')).default;
+  const { addonRouter } = await import('../src/router.js');
+  const app = express();
+  app.use((req, res, next) => requestContext.run({ baseUrl: 'https://subs.example.test/tok' }, next));
+  app.use(addonRouter(addon));
+  app.use((req, res) => res.status(404).end());
+  const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const m = await fetch(`${base}/manifest.json`);
+    assert.equal(m.headers.get('access-control-allow-origin'), '*');
+    assert.equal((await m.json()).id, manifest.id);
+    const name = 'House S01E06 & co+1.mkv';
+    save('tt0412142:1:6', name);
+    const r = await fetch(`${base}/subtitles/series/tt0412142:1:6/filename=${encodeURIComponent(name)}&videoSize=9.json`);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('cache-control'), `max-age=${7 * 24 * 3600}, public`);
+    const body = await r.json();
+    assert.ok(body.subtitles[0].url.includes(`/${Buffer.from(name).toString('base64url')}/`), 'the whole file name reached the handler');
+    assert.equal((await fetch(`${base}/subtitles/series/tt0412142%3A1%3A6.json`)).status, 200, 'an encoded id');
+    assert.equal((await fetch(`${base}/stream/movie/tt0111161.json`)).status, 404, 'no other resources');
+    assert.equal((await fetch(`${base}/subtitles/movie/%E0%A4%A.json`)).status, 400, 'a broken %-sequence');
+  } finally {
+    srv.close();
+  }
+});
+
 console.log(`\n${passed} passed`);
 process.exit(0);

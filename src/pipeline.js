@@ -4,6 +4,7 @@ import { getJson } from './http.js';
 import * as opensubtitles from './providers/opensubtitles.js';
 import * as subdl from './providers/subdl.js';
 import * as assrt from './providers/assrt.js';
+import * as wyzie from './providers/wyzie.js';
 import { cached } from './cache.js';
 import { decode } from './encoding.js';
 import { parse, toSrt } from './subtitle.js';
@@ -16,7 +17,7 @@ import { isEpisode, pickEpisodeFiles, runningTotal, videoLabel } from './episode
 import { looksLikeSubtitle } from './archive.js';
 import { translateCues, translationConfigured } from './translate.js';
 
-const PROVIDERS = { opensubtitles, subdl, assrt };
+const PROVIDERS = { opensubtitles, subdl, assrt, wyzie };
 const MIN_CUES = 20;
 const ALIGN_TOP = 4;
 const CHINESE_COUNTRIES = /^(china|hong kong|taiwan|macao|macau)$/i;
@@ -69,17 +70,21 @@ async function searchAll(query, log, trouble) {
   const entries = Object.entries(PROVIDERS);
   // The clock starts once the title lookup has answered, so a slow Cinemeta
   // doesn't count against the providers waiting for it.
-  const deadline = Promise.resolve(query.meta).then(
-    () =>
-      new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`search timed out after ${SEARCH_TIMEOUT_MS / 1000}s`)), SEARCH_TIMEOUT_MS).unref();
-      }),
-  );
-  deadline.catch(() => {});
+  // A provider may need longer (it exports SEARCH_TIMEOUT_MS).
+  const deadline = (ms) => {
+    const d = Promise.resolve(query.meta).then(
+      () =>
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error(`search timed out after ${ms / 1000}s`)), ms).unref();
+        }),
+    );
+    d.catch(() => {});
+    return d;
+  };
   const settled = await Promise.allSettled(
     entries.map(([name, p]) => {
       if (Date.now() < (downUntil.get(name) || 0)) return Promise.reject(new Error('skipped: unreachable recently, retrying later'));
-      return Promise.race([p.search(query, log), deadline]);
+      return Promise.race([p.search(query, log), deadline(p.SEARCH_TIMEOUT_MS || SEARCH_TIMEOUT_MS)]);
     }),
   );
   const results = [];
@@ -153,10 +158,12 @@ function selectForDownload(results) {
     // English is plentiful elsewhere; spend OpenSubtitles quota mostly on Chinese.
     if (provider === 'opensubtitles') cap = english ? Math.min(2, config.maxOpenSubtitlesDownloads) : config.maxOpenSubtitlesDownloads;
     if (provider === 'subdl') cap = english ? Math.min(2, config.maxSubdlDownloads) : config.maxSubdlDownloads;
+    if (provider === 'wyzie' && english) cap = Math.min(2, cap);
     const chosen = list.slice(0, cap);
-    // SubDL's daily quota is small, so its English is only a fallback for
-    // titles where OpenSubtitles has none.
-    if (provider === 'subdl' && english && osHasEnglish) deferred.push(...chosen);
+    // SubDL's daily quota is small, and Wyzie's English is mostly the same
+    // files as OpenSubtitles', so their English is only a fallback for titles
+    // where OpenSubtitles has none.
+    if ((provider === 'subdl' || provider === 'wyzie') && english && osHasEnglish) deferred.push(...chosen);
     else picked.push(...chosen);
   }
   return { picked, deferred };
@@ -257,15 +264,16 @@ function noSubtitles(trouble) {
 }
 
 // Last resort when no Chinese subtitle exists at all: translate the English
-// reference. Only for titles whose original language isn't Chinese (the
-// original side must be human-made), and only with English found by IMDb id.
-// The result is rebuilt like a degraded one, so a human Chinese subtitle
-// replaces it once one is uploaded; the translation itself is cached.
+// reference, found by IMDb id. Chinese-original titles get this too: the
+// Chinese won't be the spoken words, but it beats no two-line subtitle at all
+// (an AI Chinese file from a site is still discarded for them). The result is
+// rebuilt like a degraded one, so a human Chinese subtitle replaces it once
+// one is uploaded; the translation itself is cached.
 async function machineTranslated({ english, orig, meta, candidates, trouble, log }) {
-  if (orig === 'zh' || !translationConfigured()) return null;
+  if (!translationConfigured()) return null;
   const reference = pickEnglishReference(english.filter((c) => c.byId));
   if (!reference) return null;
-  log(`\n== No Chinese subtitle found: machine-translating the English (${reference.id})`);
+  log(`\n== No Chinese subtitle found: machine-translating the English (${reference.id})${orig === 'zh' ? ' although the title is Chinese-original' : ''}`);
   let t;
   try {
     t = await translateCues(reference, { title: meta.title, log });
@@ -316,7 +324,7 @@ export async function run({ imdbId, season = null, episode = null, release = nul
   const meta = await metaP;
   const orig = originalSide(meta);
   log(`${isEpisode(video) ? 'Episode' : 'Movie'}: ${meta.title || '?'} (${meta.year || '?'})  ${videoLabel(video)}  [${meta.countries.join(', ') || 'country ?'}]`);
-  log(`Original language side: ${orig === 'zh' ? 'Chinese' : 'English/other'} — AI/MT allowed only for ${orig === 'zh' ? 'English' : 'Chinese'} (as a last resort)`);
+  log(`Original language side: ${orig === 'zh' ? 'Chinese' : 'English/other'} — AI/MT files from sites allowed only for ${orig === 'zh' ? 'English' : 'Chinese'} (as a last resort)`);
   if (release) log(`Release: ${release}`);
   log(`Aligner: ${findAlass() ? `alass (${findAlass()})` : 'built-in offset search (alass not found)'}`);
 

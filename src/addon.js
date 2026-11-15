@@ -1,11 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import sdk from 'stremio-addon-sdk';
 import { config, VERSION } from './config.js';
 import { ensure, status, jobKey, refreshIfStale } from './jobs.js';
 import { parseVideoId, isEpisode, videoKey, videoLabel } from './episode.js';
 import { isAnimeId, resolveAnimeId } from './anime.js';
-
-const { addonBuilder } = sdk;
 
 // The subtitle URL handed to Stremio must be absolute and reachable from the
 // player, so it's built from the Host header of the incoming request
@@ -44,9 +41,10 @@ function subtitleUrl(video, filename, name = SUB_FILE_NAME) {
 
 const timeout = (ms) => new Promise((r) => setTimeout(() => r(null), ms));
 
+// The add-on as { manifest, get(resource, type, id, extra) }; src/router.js
+// serves it over HTTP. Only the "subtitles" resource exists.
 export function buildAddon(log = console.log) {
-  const builder = new addonBuilder(manifest);
-  builder.defineSubtitlesHandler(async ({ type, id, extra }) => {
+  const subtitles = async ({ type, id, extra }) => {
     let video;
     try {
       video = isAnimeId(id) ? await resolveAnimeId(id, log) : parseVideoId(id);
@@ -97,6 +95,12 @@ export function buildAddon(log = console.log) {
       // alternative-timing entry can appear once it's known.
       cacheMaxAge: ready ? 7 * 24 * 3600 : 60,
     };
-  });
-  return builder.getInterface();
+  };
+  return {
+    manifest,
+    get: async (resource, type, id, extra = {}) => {
+      if (resource !== 'subtitles') throw Object.assign(new Error(`no handler for ${resource}`), { noHandler: true });
+      return subtitles({ type, id, extra });
+    },
+  };
 }

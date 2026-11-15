@@ -1,6 +1,6 @@
 # stremio-bilingual-subs
 
-A Stremio subtitle add-on (built on `stremio-addon-sdk`) that serves
+A Stremio subtitle add-on (the add-on protocol served with Express) that serves
 **Chinese + English two-line subtitles**.
 
 For a movie it finds an existing bilingual file, or merges the best Chinese
@@ -24,6 +24,7 @@ cp .env.example .env    # then fill in keys
 | `OPENSUBTITLES_USERNAME` / `_PASSWORD` | optional, raises the daily download quota |
 | `SUBDL_API_KEY` | SubDL |
 | `ASSRT_TOKEN` | assrt.net |
+| `WYZIE_API_KEY` | sub.wyzie.io (optional; free plan: 1,000 requests a day) |
 | `MAX_DOWNLOADS_PER_PROVIDER` | SubDL/assrt downloads per language bucket (default 4) |
 | `MAX_OPENSUBTITLES_DOWNLOADS` | OpenSubtitles downloads per language bucket (default 1) |
 | `MAX_SUBDL_DOWNLOADS` | SubDL Chinese downloads per title (default 3). SubDL's free plan allows 50 a day, so its English is only fetched when OpenSubtitles has none |
@@ -182,10 +183,13 @@ node bin/fetch-subs.js tt0412142:1:6          # House, season 1 episode 6
 
 ## How it works
 
-1. **Search** OpenSubtitles (`en`, `zh-cn`, `zh-tw`, `ze`), SubDL (`EN`, `ZH`, `ZH_BG`)
-   and assrt in parallel. assrt can't search by IMDb ID, so it searches by the
-   title from Stremio's Cinemeta. Hits whose name has a different year are
-   dropped.
+1. **Search** OpenSubtitles (`en`, `zh-cn`, `zh-tw`, `zh-ca`, `ze`), SubDL (`EN`, `ZH`, `ZH_BG`),
+   assrt and Wyzie (when `WYZIE_API_KEY` is set) in parallel. assrt can't
+   search by IMDb ID, so it searches by the title from Stremio's Cinemeta. Hits
+   whose name has a different year are dropped. Wyzie's free plan serves the
+   OpenSubtitles.org catalogue without using OpenSubtitles download quota; its
+   free-plan advert line is removed from every file, and its own AI
+   translations are not used.
 2. **AI / machine-translation policy.** First the film's original language is
    decided from the first country Cinemeta lists. China, Hong Kong, Taiwan or
    Macau means Chinese; anything else means English/other.
@@ -196,8 +200,9 @@ node bin/fetch-subs.js tt0412142:1:6          # House, season 1 episode 6
    * The allowed AI/MT side is used only as a last resort. These subs are
      downloaded only when no human-made sub for that side turns up, and they
      score below every human-made file.
-   * If no Chinese sub exists at all (not even an AI one) and the film is not
-     Chinese-original, the English sub found by IMDb id is machine-translated
+   * If no Chinese sub exists at all (not even an allowed AI one), the English
+     sub found by IMDb id is machine-translated. This includes Chinese-original
+     titles, where the Chinese will not be the spoken words. It is done
      when `DEEPL_API_KEY` or `ANTHROPIC_API_KEY` is set: DeepL first, Claude
      (`TRANSLATE_MODEL`) when DeepL's allowance is used up or it
      fails. DeepL's remaining allowance is checked first, so a translation is
@@ -277,9 +282,10 @@ docker-compose.yml       container setup for a VPS
 bin/server.js            Stremio add-on server (npm start)
 bin/fetch-subs.js        CLI
 src/addon.js             manifest + subtitles handler
+src/router.js            the add-on protocol over HTTP (manifest, /subtitles/...json)
 src/jobs.js              background searches, saved results
 src/pipeline.js          orchestration, AI policy, logging
-src/providers/*.js       opensubtitles, subdl, assrt
+src/providers/*.js       opensubtitles, subdl, assrt, wyzie
 src/archive.js           zip / rar / 7z extraction
 src/cache.js             download cache
 src/encoding.js          charset detection → UTF-8
@@ -309,5 +315,5 @@ tools/alass/             local alass-cli.exe (not in git; see "alass")
 * SubDL's language labels are unreliable. A file labeled Big5 Chinese turned
   out to be Arabic. Such files are caught because real Chinese is ~50% common
   characters, and garbled text is ~1%.
-* Translation covers only English to Chinese. A Chinese-original title with no
-  human Chinese sub still gets nothing (see NOTES.md, finding 36).
+* Translation covers only English to Chinese. A title with no English sub
+  found by IMDb id still gets nothing.

@@ -35,6 +35,11 @@ export const config = {
     token: process.env.ASSRT_TOKEN || '',
     baseUrl: 'https://api.assrt.net/v1',
   },
+  // Free plan: 1,000 requests a day (a search is 2, each download 1).
+  wyzie: {
+    apiKey: process.env.WYZIE_API_KEY || '',
+    baseUrl: process.env.WYZIE_BASE_URL || 'https://sub.wyzie.io',
+  },
   // How many results per provider *per language bucket* to actually download.
   // Downloads are quota-limited on OpenSubtitles, so keep this small.
   maxDownloadsPerProvider: int(process.env.MAX_DOWNLOADS_PER_PROVIDER, 4),

@@ -6,7 +6,7 @@ From the full code review done with Fable on 2026-11-15. Findings 1 to 15 (group
 
 How to use: work one group at a time ("Apply group C from NOTES.md, with tests, then show me the diff before pushing"). Line numbers are from commit `7daa4a5`, before the v0.7.0 changes, so some have moved; find the code by the function or file named. "Verified" means a check was run; "inferred" means from reading the code only.
 
-Needs a decision before implementing: 26 (replace the SDK), 34 and 35 (new sources), 36 (AI translation). Plan those with Opus or Fable.
+Decided on 2026-11-15: 26 yes, 29 leave, 36 yes (AI translation when nothing else exists), 34 and 35 yes (more sources), 32 yes. Done in the commit after 709789c, see each item.
 
 ### C. Smaller edge cases
 
@@ -57,7 +57,7 @@ Fix: group within 200 ms. Risk: none.
 
 ### E. Security and robustness
 
-Status: 27 is done (size limits; the assrt http links are still plain http). 28 is done (SHA-256 check of the amd64 alass download in the Dockerfile; the ARM build compiles from crates.io and is not covered). 26 needs a decision. 29 untouched.
+Status: 27 is done (size limits; the assrt http links are still plain http). 28 is done (SHA-256 check of the amd64 alass download in the Dockerfile; the ARM build compiles from crates.io and is not covered). 26 is done: stremio-addon-sdk is replaced by src/router.js (same answers on 11 requests and a CORS preflight, compared side by side; `npm audit` now finds 0 vulnerabilities). 29 is left as is (decided).
 
 **26. `npm audit`: 4 high, 2 low, all through `stremio-addon-sdk`** (verified)
 ReDoS in its router's `path-to-regexp`; the rest are in its CLI parts. Only token holders can reach it. npm's suggested fix is a major downgrade.
@@ -84,14 +84,15 @@ Every Nuvio-facing bug this month was there (v0.7.0 added some jobs tests). Also
 
 ### G. Better language fetching
 
-**32. OpenSubtitles: add Cantonese (`zh-ca`) and a second page when Chinese results are few.** Gain unknown.
+**32. OpenSubtitles: add Cantonese (`zh-ca`) and a second page when Chinese results are few.** Cantonese is done. A second page is not: Chinese results were 14 (Shawshank) and 1 (House S01E06) of 50 per page, and only one OpenSubtitles file per title is downloaded anyway.
 
 **33. Running-total episode numbers only apply to OpenSubtitles**, not SubDL, assrt or pack file names (src/providers/opensubtitles.js:32-41). v0.7.0 added running totals for pack file names (`pickEpisodeFiles`); SubDL and assrt are still open.
 
-**34. Search assrt by Chinese title too.** Wikidata gives it by IMDb ID with no key. Unsure of the gain: assrt had nothing for the three Chinese titles tried. Needs a decision.
+**34. Search assrt by Chinese title too.** Wikidata gives it by IMDb ID with no key. Not done: assrt's search found nothing by Chinese title for any of 4 titles (流浪地球, 漂白, 絕地戰警：生死與共, 六人行：當我們又在一起), not even the ones it finds by English title.
 
-**35. New sources with real APIs:** SubSource (free key), Wyzie (key already held), AnimeTosho (official subtitle tracks from anime releases; API details unverified). Needs a decision.
+**35. New sources with real APIs:** SubSource (free key), Wyzie (key already held), AnimeTosho (official subtitle tracks from anime releases; API details unverified).
+Wyzie is done (src/providers/wyzie.js, needs WYZIE_API_KEY): only its "charlie" source, which is the OpenSubtitles.org catalogue without our OpenSubtitles download quota. Its other free sources were checked and left out ("quebec" matched House of the Dragon for House, "oscar" only AI, "xray" only English). The free plan adds an advert cue to every file; it is removed. SubSource needs a free key from you. AnimeTosho is not done: it searches by release name and its subtitle tracks are mostly English.
 
-**36. Chinese-original titles need a decision.** (Since then, English-original titles with no Chinese anywhere get DeepL / Claude Haiku translation; see README. Chinese-original titles are still open.) No Chinese file exists on any source with an API (verified for two shows). Options: an English-only entry, or AI translation with your own key, cached per title and marked as AI. The second is what MultiSub does and would allow cancelling it, but it reverses the rule that Chinese must be human-made for Chinese titles.
+**36. Chinese-original titles.** Done: they are machine-translated from English too when no Chinese exists (decided 2026-11-15); untested on a real title, since the one Chinese show tried has no subtitle in any language. (Since then, English-original titles with no Chinese anywhere get DeepL / Claude Haiku translation; see README. Chinese-original titles are still open.) No Chinese file exists on any source with an API (verified for two shows). Options: an English-only entry, or AI translation with your own key, cached per title and marked as AI. The second is what MultiSub does and would allow cancelling it, but it reverses the rule that Chinese must be human-made for Chinese titles.
 
 Checked and fine during the review: startup import takes 67 ms, a corrupt 7z does not kill the process, and Nuvio history only uses `tt`, `mal` and `kitsu` IDs, all of which the add-on accepts.

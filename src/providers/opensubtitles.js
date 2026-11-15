@@ -51,7 +51,8 @@ export async function search({ imdbId, season, episode, meta }, log) {
     if (total && total !== episode) episodeNumbers.push(total);
   }
   const queries = (episodeQuery ? episodeNumbers : [null]).flatMap((ep) =>
-    ['en', 'ze,zh-cn,zh-tw'].map((languages) => {
+    // zh-ca is Cantonese: written Chinese too, used when nothing else is there.
+    ['en', 'ze,zh-ca,zh-cn,zh-tw'].map((languages) => {
       // Episodes are looked up by the show's id (parent_imdb_id) + numbers.
       const params = episodeQuery
         ? { episode_number: String(ep), languages, order_by: 'download_count', parent_imdb_id: numericId, season_number: String(season), type: 'episode' }

@@ -4,16 +4,15 @@ import { readFile, appendFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import express from 'express';
-import sdk from 'stremio-addon-sdk';
 import { config } from '../src/config.js';
 import { buildAddon, requestContext, manifest } from '../src/addon.js';
+import { addonRouter } from '../src/router.js';
 import { ensure } from '../src/jobs.js';
 import { parseVideoId, videoLabel } from '../src/episode.js';
 import { findAlass } from '../src/align.js';
 import { preloadAnimeList } from '../src/anime.js';
 import { startHousekeeping } from '../src/housekeeping.js';
 
-const { getRouter } = sdk;
 const token = config.addonToken;
 const prefix = token ? `/${token}` : '';
 const hideToken = (s) => (token ? s.split(token).join('***') : s);
@@ -96,7 +95,7 @@ routes.get('/sub/:videoId/:file/:name.srt', serveSub);
 routes.get('/sub/:videoId/:file.srt', serveSub);
 
 routes.get('/', (req, res) => res.redirect(`${prefix}/manifest.json`));
-routes.use(getRouter(buildAddon(log)));
+routes.use(addonRouter(buildAddon(log)));
 
 app.use(prefix || '/', routes);
 app.use((req, res) => res.status(404).end());

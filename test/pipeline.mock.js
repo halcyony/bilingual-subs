@@ -17,6 +17,9 @@ process.env.RESULTS_DIR = mkdtempSync(path.join(tmpdir(), 'bisubs-results-'));
 // Translation is off unless a scenario turns it on (keys in a local .env must not leak in).
 process.env.DEEPL_API_KEY = '';
 process.env.ANTHROPIC_API_KEY = '';
+// Wyzie is off unless a scenario turns it on.
+process.env.WYZIE_API_KEY = '';
+process.env.WYZIE_BASE_URL = 'https://wyzie.mock';
 
 const zhS = ['你好，我们走吧。', '这个地方真的很安静。', '他说他会回来的。', '希望是一件好事。', '我们在监狱里过了很多年。'];
 const zhT = ['你好，我們走吧。', '這個地方真的很安靜。', '他說他會回來的。', '希望是一件好事。', '我們在監獄裡過了很多年。'];
@@ -81,7 +84,7 @@ let osChinese = true;
 let deeplMode = 'ok'; // 'ok' | 'usedUp' | 'quota456' | 'down'
 let claudeMode = 'ok'; // 'ok' | 'down' | 'busy' (429 while another request is running)
 let claudeInFlight = 0;
-const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0 };
+const calls = { assrtDetail: 0, subdlEnglish: 0, subdlDownload: 0, deeplTranslate: 0, claude: 0, claudeModels: [], claudeMaxInFlight: 0, wyzieSearch: [], wyzieDownload: [] };
 const toZh = (line) => zhS[en.indexOf(line)] ?? `译${line}`;
 
 const json = (o, init = {}) => new Response(JSON.stringify(o), { ...init, headers: { 'content-type': 'application/json' } });
@@ -187,6 +190,19 @@ globalThis.fetch = async (url, opts = {}) => {
     } finally {
       claudeInFlight--;
     }
+  }
+  if (u.host === 'wyzie.mock' && u.pathname === '/search') {
+    calls.wyzieSearch.push(`${u.searchParams.get('language')}/${u.searchParams.get('source')}`);
+    if (u.searchParams.get('language') !== 'zh') return json({ code: 404, message: 'No subtitles found' }, { status: 404 });
+    return json([
+      { id: 'ai-zh', url: 'https://wyzie.mock/ai', language: 'zh', ai: true, source: 'charlie' },
+      { id: '1958483388', url: 'https://wyzie.mock/c/1/id/1958483388?format=srt', language: 'zh', release: 'Shawshank.1994.BluRay.720p', fileName: 'Shawshank.chs.srt', downloadCount: 6139, source: 'charlie', format: 'srt' },
+    ]);
+  }
+  if (u.host === 'wyzie.mock') {
+    calls.wyzieDownload.push(u.pathname);
+    const advert = "1\n00:00:00,000 --> 00:00:06,000\nYou're on the free plan. Unlock every source, AI translation & ad-free subs → sub.wyzie.io\n\n";
+    return new Response(advert + toSrt(make(zhS, 300, 1200)));
   }
   throw new Error(`unexpected fetch ${url}`);
 };
@@ -400,12 +416,14 @@ await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), (e) => e
 claudeMode = 'ok';
 deeplMode = 'ok';
 
-console.log('\n### Scenario 19: a Chinese-original title is never machine-translated');
+console.log('\n### Scenario 19: a Chinese-original title with no Chinese anywhere is machine-translated too');
 country = 'China';
 calls.deeplTranslate = 0;
 calls.claude = 0;
-await assert.rejects(run({ imdbId: 'tt0111161', release, log: quiet }), { code: 'NO_SUBTITLES' });
-assert.equal(calls.deeplTranslate + calls.claude, 0);
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'translated');
+assert.ok(r.degraded, 'rebuilt later so a human Chinese file can replace it');
+assert.ok(calls.deeplTranslate + calls.claude > 0);
 country = 'United States';
 
 console.log('\n### Scenario 20: an existing Chinese subtitle (even an AI one from a site) wins over translating');
@@ -414,5 +432,25 @@ withSubdl = true;
 subdlMode = 'ok';
 r = await run({ imdbId: 'tt0111161', release, log: quiet });
 assert.notEqual(r.mode, 'translated');
+
+console.log('\n### Scenario 21: Wyzie finds the only Chinese file; its AI translations are skipped');
+osChinese = false;
+withSubdl = false;
+assrtMode = 'none';
+config.wyzie.apiKey = 'wyzie-test';
+calls.claude = 0;
+calls.deeplTranslate = 0;
+r = await run({ imdbId: 'tt0111161', release, log: quiet });
+assert.equal(r.mode, 'merged');
+assert.equal(r.chosen.id, 'wyzie:1958483388');
+assert.ok(!r.chosen.ai && !r.chosen.contentMarker, 'the free-plan advert does not make it look machine-translated');
+assert.ok(!r.srt.includes('wyzie'), 'the advert is not in the result');
+assert.equal(calls.claude + calls.deeplTranslate, 0, 'a human file wins over translating');
+assert.deepEqual(calls.wyzieSearch.sort(), ['en/charlie', 'zh/charlie']);
+assert.deepEqual(calls.wyzieDownload, ['/c/1/id/1958483388'], 'the AI entry is never downloaded');
+config.wyzie.apiKey = '';
+osChinese = true;
+withSubdl = true;
+assrtMode = 'ok';
 
 console.log('\npipeline mock: all assertions passed');
